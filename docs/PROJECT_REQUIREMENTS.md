@@ -48,6 +48,8 @@
 
 ## 4. 数据模型与通用约定
 
+> **存储总体方案（用户决策 2026-09-02，dec-0f895a1ddd678090）**：**全 JSON 文件**——题目每题一个 JSON（`problems/`）；用户/提交/日志等以 JSON 条目存于各自目录（`users/ submissions/ logs/`）；无二进制文件、结构透明便于阅读讲解；`POST /api/reset/` 清空即删目录重建。数据规模小且评测单用户串行，无并发写压力。
+
 ### 4.1 题目（problem）字段
 必填：`id`(str)、`title`、`description`、`input_description`、`output_description`、`samples`(list of {input,output})、`constraints`、`testcases`(list of {input,output})
 可选：`hint`、`source`、`tags`(list)、`time_limit`(float，api.md 标注默认 3s)、`memory_limit`(int，api.md 标注默认 128MB)、`author`、`difficulty`(str，api.md 契约，展示标签如"入门")
@@ -64,7 +66,7 @@
 - submission 详情示例字段：`submission_id, user_id, problem_id, language, code, status, score, counts, compile_info{result,message}, run_info{result,message}, error_info, details[{id,result,time,memory}]`。`pending/error` 至少返回 `submission_id` 与 `status`，未产生字段可返回 null。
 
 ### 4.3 用户
-角色：`user` / `admin` / `banned`（banned 再登录被拒 403；⚠ 已登录会话中途被改 banned 是否立即失效官方未定义，需自定并在文档说明）。
+角色：`user` / `admin` / `banned`（banned 再登录被拒 403；⚠ 已登录会话中途被改 banned 是否立即失效官方未定义，需自定并在文档说明；现按用户决策 dec-0f895a1ddd678090 定为**立即失效**——每次请求实时查库校验角色，被 ban 后下一次请求即 403）。
 字段：`user_id, username, password(bcrypt 加密), role, join_time(YYYY-MM-DD), submit_count(按提交计，一题可多次), resolve_count(按题目 AC 计，一题最多一次)`（口径注释出自 api.md 注册接口）。
 认证：**Session**（FastAPI/Starlette `SessionMiddleware` + `uuid4` 生成 session id，服务端存储；登出清除服务端 session；可设过期时间）。Step4 页面教学：Session 优于 JWT 之处在于服务端可立即失效。
 - ⚠ **加密与传输边界**：①存储层——密码必须 bcrypt 哈希（api.md），模型 api_key 等敏感配置不得明文落盘/日志；②会话层——Cookie 只携带 uuid4 session id（不可预测/伪造），不含明文身份，靠服务端会话映射 + 过期实现安全，无需对 cookie 内容二次加密；③传输层——本地开发与课程验收走 HTTP 明文即可，TLS/HTTPS 仅公网部署需要（FAQ 中"HTTPS 传 Cookie"为生产建议，不属验收项）；④泄露防护——密码/密钥不进日志、错误信息与普通响应，不放入 URL/GET 参数（避免访问日志留痕），`error_info` 等字段脱敏。
@@ -175,6 +177,9 @@
 3. **时间预算**：工作日每日约 3h；周末（9.5/9.6）各 4–6h。
 4. **题目难度数值化**：新增可选扩展字段 `difficulty_score`(float，0–10)，api.md 的 `difficulty`(str) 契约不动；AI 参考题抽取用 score。
 5. **AI 命题界面**：结构化表单（考点多选/难度数值/预期复杂度/数据规模/背景/备注，**不含 SPJ 维度**）与纯文本两种输入；支持站内链接引用与难度相近题抽取；上传文件须对纯文本模型提示"无法观看图片"；AI 产出预填"新增/编辑题目"表单供人审改（详见 §6.1）。
+6. **banned 会话语义**（dec-0f895a1ddd678090）：被 ban 后已登录会话**立即失效**——每次请求实时查库校验角色，被 ban 后下一次请求即 403。
+7. **存储方案**（同 dec）：**全 JSON 文件**（题目每题一 JSON；用户/提交/日志目录化 JSON；reset 删目录重建，详见 §4）。
+8. **开工**（同 dec）：9.2 晚提前铺环境（venv/依赖/目录骨架），D1 直接进入公共骨架编码。
 
 **假设（未获用户否定前按此推进）：**
 4. **环境**：Windows 上开发，WSL2 + Ubuntu 做评测测试（Ubuntu 尚未安装，列入环境搭建首日）。

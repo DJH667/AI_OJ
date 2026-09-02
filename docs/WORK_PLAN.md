@@ -34,10 +34,11 @@
 ## 3. 分日详细任务
 
 ### D1 9.3（四）环境 + 公共骨架（3h）
+> ⚠ 环境准备（venv/依赖/目录骨架）已提前至 9.2 晚完成（决策 dec-0f895a1ddd678090）；D1 剩余：WSL 安装（用户侧）+ 公共骨架编码。
 - **用户侧（当天第一件事，可并行）**：安装 WSL2 + Ubuntu（需管理员权限，可能要重启）；装好后 `sudo apt install g++ python3 python3-venv`，验证 `python3 --version` 与 `g++ --version`。若当天未就绪：Windows 侧先跑通除"评测执行"外的全部，D4 前补验即可。
 - **目录结构（前后端分离，官方 Step6 任务 4）**：仓库内分 `backend/`（FastAPI 源码）与 `frontend/`（Streamlit app.py）；后端 `uvicorn` 起在 8000 端口，前端 `streamlit run` 起在 8501 端口，仅经 REST API + Cookie 会话交互（架构约定见 PROJECT_REQUIREMENTS §1.1）。
 - **我侧**：`E:\程序\python\大作业-2` 建 venv + `requirements.txt`（fastapi uvicorn pydantic streamlit bcrypt psutil httpx pytest python-multipart）；确认 git 仓库与 `.gitignore`（排除 venv/`__pycache__`/数据目录/密钥）。
-- **公共层**：统一响应 `{code,msg,data}` 工具；全局异常处理器（顺序 401>403>400>429>409>404>500，422→400）；存储目录规划（`problems/ users/ submissions/ logs/`，JSON 文件持久化，实现方案 D2 敲定）；`POST /api/reset/`；启动钩子创建初始管理员 `admin/admintestpassword`。
+- **公共层**：统一响应 `{code,msg,data}` 工具；全局异常处理器（顺序 401>403>400>429>409>404>500，422→400）；存储目录规划（`problems/ users/ submissions/ logs/`，**全 JSON 文件**持久化，方案已定 dec-0f895a1ddd678090）；`POST /api/reset/`；启动钩子创建初始管理员 `admin/admintestpassword`。
 - **交付**：`uvicorn` 可启动、`POST /api/reset/` 可调用；`docs/` 更新《D1 实现说明与导读》。
 - **自测**：reset 返回 `{"code":200,"msg":"system reset successfully","data":null}`；错误响应各状态码抽样验证。
 
