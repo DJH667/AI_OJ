@@ -61,7 +61,7 @@
 - 熟悉重点：subprocess+asyncio、资源限制实现、筛选/分页边界语义。
 
 ### D5 9.7（一）评测日志 Step5（3h，AI +0.5h 可选）
-- 评测时记录每测例 `details[{id,result,time,memory}]`；`GET .../log`（本人/管理员；题目 `public_cases=True` 时公开 details；公开日志≠公开 Step2/3 简单结果）；`PUT /api/problems/{id}/log_visibility`；access 审计（action=`logs`，助教确认 2026-09-02、status 记录拒绝、不记 未登录/不存在/参数错误）。
+- 评测时记录每测例 `details[{id,result,time,memory}]`；`GET .../log`（本人/管理员；题目 `public_cases=True` 时公开 details；公开日志≠公开 Step2/3 简单结果）；`PUT /api/problems/{id}/log_visibility`；access 审计（action=`view_logs`，助教 2026-09-02 二选一答复指正文写法、status 记录拒绝、不记 未登录/不存在/参数错误）。
 - **AI 起步（+0.5h）**：`/api/ai/*` 路由骨架 + model-config 持久化（密钥脱敏存储、响应不回显明文）+ 命题需求数据模型（结构化/纯文本两类，字段见需求文档 §6.1）。
 - 交付：Step5 自测全绿（含可见性三态：本人/管理员/公开后他人）。
 - 熟悉重点：日志裁剪与可见性、审计"只记已鉴权的访问结果"。
