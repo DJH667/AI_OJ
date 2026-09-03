@@ -87,6 +87,7 @@ cd backend
 - 注册/登录响应结构与 api.md 示例一致（data 字段、msg 文案）。
 - banned 立即失效、服务端 session、权限操作日志均按需求文档已确认决策实现。
 - `GET /api/users/` 响应键为 `users`（api.md 示例），非 submissions 的 `submissions`——注意区分。
+- ✅ 响应字段已**逐字段对照官方 api.md（2026-09-01）示例**核对（回应 D2 评审 P2）：注册返回 `user_id/username/join_time/role/submit_count/resolve_count` 六字段、登录返回 `user_id/username/role`、创建管理员返回 `user_id/username`、用户详情与列表条目同六字段——均与官方示例一致，无多余字段。
 
 ## 6. 遗留/风险
 
@@ -94,3 +95,7 @@ cd backend
 - `GET /api/users/` 的 api.md 异常表含"404 用户不存在"疑似笔误，本实现不产生该场景（列表接口只 400/401/403）。
 - Step2–3 接入鉴权时复用 `api/deps.py`；提交计数 submit_count/resolve_count 的维护在 Step2/3 落地。
 - 会话 TTL 7 天为默认，未做"服务端主动清过期"定时任务（懒删除足够）。
+- 【评审 P3 观察项，2026-09-03】管理员**可自我降权/被 ban**（api.md 未禁止、无保护）：系统可能瞬间失去可用管理员，需 reset 恢复；验收演示时避免误操作。代码不改，语义在此记录。
+- 【评审 P3 观察项】Session Cookie 未设 `Secure`：本地 HTTP 验收无碍（TLS 非验收项），公网部署需加。
+- 【评审 P3 观察项】Starlette 默认 404/405 的 msg 仍为 `str(exc.detail)`（"Not Found"），未走 `messages` 表；后续统一契约文案时收敛。
+- 【评审 P3，已落地 9.3 晚】`store.save_json` 已改 tmp + `os.replace` 原子写。

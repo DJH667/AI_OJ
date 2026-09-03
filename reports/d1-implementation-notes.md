@@ -100,7 +100,7 @@ cd backend
 | P2 损坏 JSON 静默吞 | ✅ `store.py` 对 `JSONDecodeError` 记 `logger.warning`（与"不存在"可区分） |
 | P1/P3 404 msg 英文契约化 | 观察项：D2 起业务 msg 统一中文契约表时一并落实 |
 | P2 422→400 实测 | D2 出现带 body 接口（注册）后补测试 |
-| P3 save_json 无原子性 | 备忘：数据量小 + 单用户串行，暂不处理 |
+| P3 save_json 无原子性 | ✅ 已落地（9.3 晚补）：`store.save_json` 改 tmp + `os.replace` 原子写 |
 | P2 reset 不鉴权观察项 | 验收前按助教口径复核（已在下方遗留清单） |
 
 > 测试备注：Starlette 在纯 `ASGITransport` 下会把已处理的 500 异常 re-raise 给调用方，故 500 用例改用 `TestClient(app, raise_server_exceptions=False)` 断言真实响应体。
