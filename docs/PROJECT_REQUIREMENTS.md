@@ -88,8 +88,15 @@
 | GET `/api/problems/` | 登录 | 列表：`[{id,title},...]` |
 | POST `/api/problems/` | 登录 | 字段校验；400 缺失/格式错误；409 id 已存在；返回 `{"id":...}` |
 | PUT `/api/problems/{problem_id}` | 登录 | body 中 id 必须与路径一致（否则 400）；404 不存在 |
-| DELETE `/api/problems/{problem_id}` | **仅管理员** | 404 不存在 |
+| DELETE `/api/problems/{problem_id}` | **仅管理员** | 404 不存在；**级联删除**：testcases（随题目文件）、该题全部 submissions 及其评测日志（judge log）、access 审计中该 problem_id 的记录（助教确认 2026-09-02） |
 | GET `/api/problems/{problem_id}` | 登录 | 404 不存在；含全部字段与类型默认值 |
+
+> ⚠ **助教澄清（微信群 2026-09-02，作为实现/验收基准）**：
+> 1. 普通用户查看题目详情时 **`testcases` 需要返回**（含全部字段与类型默认值，与 api.md 详情示例一致）；
+> 2. **题目修改（PUT）允许所有普通登录用户**（仅删除限管理员，与上表一致）；
+> 3. **修改题目或测试点后，历史已通过的提交不需要重新评测**——系统不自动触发 rejudge（rejudge 仅管理员手动调用）；
+> 4. **删除题目时级联删除**：testcases（随题目 JSON 删除）、该题全部 submissions、judge_log（submission 级评测日志与测例 details）、access_log 中该 problem_id 的审计记录。
+> 未定义项（建议必要时追问助教）：删除题目后历史提交曾计入的 `submit_count`/`resolve_count` 是否回退——当前默认**不回退**（统计视为历史快照，实现时在文档注明）。
 
 ### Step 2 评测控制（5 分）
 - 评测流程：取题目 → 取用户代码与语言 → 编译（如需要，C++ 先编译再运行）→ 逐个测例运行、限时/限内存（超限立即 kill → TLE/MLE）→ 比对输出（忽略行末空格与最后多余换行；程序不得输出多余提示语）→ 结构化结果（compile_info/run_info/error_info）。
