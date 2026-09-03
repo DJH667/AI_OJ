@@ -2,6 +2,8 @@
 - 初始管理员种子（存在性 / role / bcrypt 可验）
 - POST /api/reset/（清空 + 重建 + 响应结构）
 - 未知路径 404 统一响应格式
+- 未预期异常 500 兜底统一格式（评审意见 P1，2026-09-03）
+- 特殊字符 key 存储往返
 """
 import asyncio
 
@@ -59,6 +61,27 @@ def test_unknown_path_404_unified():
     assert body["code"] == 404
     assert body["msg"]
     assert body["data"] is None
+
+
+def test_unhandled_exception_500_unified():
+    # 临时注册一个必抛异常的测试路由，验证兜底 handler 收敛为 JSON 500 且不泄露内部信息。
+    # 注：Starlette 在纯 ASGI 传输(ASGITransport)下会把已处理的 500 异常 re-raise 给调用方，
+    # 故此处用 TestClient(raise_server_exceptions=False) 取得真实响应体断言。
+    from fastapi.testclient import TestClient
+
+    def _boom():
+        raise RuntimeError("secret-internal-detail")
+
+    app.add_api_route("/api/_boom", _boom, methods=["GET"])
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        r = client.get("/api/_boom")
+        assert r.status_code == 500
+        assert r.json() == {"code": 500, "msg": "internal server error", "data": None}
+        assert "secret-internal-detail" not in r.text
+        assert "Traceback" not in r.text
+    finally:
+        app.routes[:] = [rt for rt in app.routes if getattr(rt, "path", None) != "/api/_boom"]
 
 
 def test_store_key_roundtrip_with_special_chars():

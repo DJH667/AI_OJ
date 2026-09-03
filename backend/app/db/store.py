@@ -8,12 +8,15 @@ reset 清空即删目录内文件重建。数据量小且评测单用户串行�
 （题目 id、用户名等可含 : / * ? 等），实际 key 存于文件内容或可由文件名反解。
 """
 import json
+import logging
 import shutil
 from pathlib import Path
 from typing import Any, Dict, Iterator, Optional, Tuple
 from urllib.parse import quote, unquote
 
 from app import config
+
+logger = logging.getLogger("oj.store")
 
 
 def encode_key(key: str) -> str:
@@ -42,6 +45,8 @@ def load_json(directory: Path, key: str) -> Optional[Dict[str, Any]]:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
+        # 评审意见 P2（2026-09-03）：损坏文件记日志，便于与"不存在"区分排查。
+        logger.warning("corrupted json file (treat as missing): %s", path)
         return None
 
 
@@ -65,6 +70,7 @@ def iter_all(directory: Path) -> Iterator[Tuple[str, Dict[str, Any]]]:
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
+            logger.warning("corrupted json file (skip): %s", p)
             continue
         yield decode_key(p.stem), data
 

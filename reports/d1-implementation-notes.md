@@ -89,8 +89,23 @@ cd backend
 - `GET /api/users/{id}`、用户列表、role 变更（含权限操作日志）、创建管理员
 - 权限依赖 `get_current_user` / `require_admin`（供 Step1–3 复用）
 
-## 6. 遗留/风险
+## 6. 评审意见处理（9.3 晚，详见 comments/2026-09-03-review-f5e6738.md）
 
-- 422→400 的实测在 D2 出现带 body 的接口后补验（处理器已就位）。
+评审结论：✅ D1 达标可进入 D2。处理结果：
+
+| 意见 | 处理 |
+|---|---|
+| P1 缺兜底 Exception 处理器 | ✅ 已落地：`exceptions.py` 增 `@app.exception_handler(Exception)` → `{"code":500,"msg":"internal server error","data":null}`，堆栈仅入服务端日志不回显；新增 `test_unhandled_exception_500_unified` |
+| P3 conftest 隐式 sys.path | ✅ 已改显式 `sys.path.insert(backend 目录)` |
+| P2 损坏 JSON 静默吞 | ✅ `store.py` 对 `JSONDecodeError` 记 `logger.warning`（与"不存在"可区分） |
+| P1/P3 404 msg 英文契约化 | 观察项：D2 起业务 msg 统一中文契约表时一并落实 |
+| P2 422→400 实测 | D2 出现带 body 接口（注册）后补测试 |
+| P3 save_json 无原子性 | 备忘：数据量小 + 单用户串行，暂不处理 |
+| P2 reset 不鉴权观察项 | 验收前按助教口径复核（已在下方遗留清单） |
+
+> 测试备注：Starlette 在纯 `ASGITransport` 下会把已处理的 500 异常 re-raise 给调用方，故 500 用例改用 `TestClient(app, raise_server_exceptions=False)` 断言真实响应体。
+
+## 7. 遗留/风险
+
 - `error_info` 等脱敏、日志防泄露属 D2–D5 逐项落实。
 - 若 reset 的"不鉴权"选择与自动评测预期不符（评测若要求必须 admin 才能 reset），届时按实测调整。
