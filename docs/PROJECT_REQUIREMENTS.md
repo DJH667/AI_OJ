@@ -114,7 +114,7 @@
 ### Step 4 用户管理（5 分）
 - `POST /api/users/` 注册（用户名 3–40、密码 ≥6、唯一性 400、bcrypt）；`POST /api/auth/login`（400 参数 / 401 用户名或密码错误 / **403 用户被禁用**）、`POST /api/auth/logout`（401 未登录）。
 - `GET /api/users/{user_id}`：仅本人或管理员（不含密码）；404 用户不存在。⚠ 响应含 username/role（以 api.md 为准；Step4 页面旧示例缺这些字段，属版本漂移，勿照抄页面）。
-- `PUT /api/users/{user_id}/role`：仅管理员，role∈{admin,user,banned}（否则 400），**记录权限操作日志**（谁在何时改了谁的权限——与 Step5 的 view_log 审计是两回事，勿混淆）。
+- `PUT /api/users/{user_id}/role`：仅管理员，role∈{admin,user,banned}（否则 400），**记录权限操作日志**（谁在何时改了谁的权限——与 Step5 的 access 日志审计（action=`logs`）是两回事，勿混淆）。
 - `GET /api/users/`：仅管理员，分页筛选（语义同 submissions 列表）；响应 `{total, users:[...]}`。
 - `POST /api/users/admin`：仅管理员创建新管理员（重名 400）。
 - **权限回填**（Step4 页面"权限提示"，关键！）：Step4 之后——题目上传/语言创建=任意登录用户；删除题目=仅管理员；暂不支持删除语言；**未登录用户不得对任何资源增删查改**（Step1–3 接口需补 401/403 校验）。
@@ -122,7 +122,7 @@
 ### Step 5 评测日志（5 分）
 - `GET /api/submissions/{submission_id}/log`：仅本人（未公开时）或管理员；管理员可见 `details`（每测例 `{id,result,time,memory}`）；仅当题目 `public_cases=True` 时其他用户可见 details。响应 `{details, score, counts}`。⚠ Step5 页面补充语义：日志对所有人公开 ≠ 公开 Step2/3 的简单结果——无权限用户即便能看该评测的日志 details，仍访问不了该 submission 的 Step2/3 详情接口。
 - `PUT /api/problems/{problem_id}/log_visibility`：仅管理员；参数 `public_cases`(bool，默认 False)。
-- `GET /api/logs/access/`：仅管理员；审计日志查询，action 统一为 `"view_log"`（⚠ api.md 正文一处笔误写作 `view_logs`，以响应示例为准，全站统一）；返回含 `status`（记录本次访问是否被拒，如 `"403"`）。筛选 user_id/problem_id/page/page_size（分页语义同 submissions）。**不记录**：未登录 / submission 不存在 / 参数错误时。
+- `GET /api/logs/access/`：仅管理员；审计日志查询，action 统一为 `"logs"`（⚠ **助教确认 2026-09-02**：api.md 正文写 `view_logs`、响应示例写 `view_log`，二者不一致，助教答复用 `logs`，全站统一）；返回含 `status`（记录本次访问是否被拒，如 `"403"`）。筛选 user_id/problem_id/page/page_size（分页语义同 submissions）。**不记录**：未登录 / submission 不存在 / 参数错误时。
 
 ### Step 6 前端交互（5 分）
 - **Streamlit**（Python，不要求 JS/HTML/CSS），`streamlit run app.py` 启动；通过 REST API 与后端交互；**不新增独立业务接口**；禁止绕过 API 直读后端数据、禁止硬编码用户身份；登录态靠 Session/Cookie 传递；按 HTTP 状态码与 `code/msg` 展示结果；权限与可见性以后端为准（不能仅靠前端隐藏按钮）。
