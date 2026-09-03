@@ -9,6 +9,7 @@ reset 清空即删目录内文件重建。数据量小且评测单用户串行�
 """
 import json
 import logging
+import os
 import shutil
 from pathlib import Path
 from typing import Any, Dict, Iterator, Optional, Tuple
@@ -33,9 +34,15 @@ def ensure_dirs() -> None:
 
 
 def save_json(directory: Path, key: str, data: Dict[str, Any]) -> None:
+    """原子写入：先写同目录临时文件再 os.replace（评审意见 P3，2026-09-03）。
+
+    避免进程中断留下半截 JSON；数据量增大（题目/提交）后仍保持健壮。
+    """
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{encode_key(key)}.json"
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    target = directory / f"{encode_key(key)}.json"
+    tmp = directory / f".{encode_key(key)}.tmp"
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, target)
 
 
 def load_json(directory: Path, key: str) -> Optional[Dict[str, Any]]:
