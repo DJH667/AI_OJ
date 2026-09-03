@@ -16,6 +16,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core.messages import INVALID_PARAMETERS
+
 logger = logging.getLogger("oj")
 
 
@@ -44,7 +46,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
         # FastAPI 默认对参数/请求体校验失败返回 422，项目约定转为 400。
-        return JSONResponse(status_code=400, content=_error_payload(400, "invalid request parameters"))
+        return JSONResponse(status_code=400, content=_error_payload(400, INVALID_PARAMETERS))
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:

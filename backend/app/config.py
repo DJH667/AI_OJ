@@ -16,6 +16,7 @@ USERS_DIR = DATA_DIR / "users"              # 用户：每个用户名一个 JSO
 SUBMISSIONS_DIR = DATA_DIR / "submissions"  # 提交：每条一个 JSON
 LOGS_DIR = DATA_DIR / "logs"                # 评测日志目录
 ACCESS_LOGS_DIR = LOGS_DIR / "access"       # 日志访问审计
+ROLE_CHANGES_DIR = LOGS_DIR / "role_changes"  # 权限变更操作日志（Step4）
 SESSIONS_DIR = DATA_DIR / "sessions"        # 服务端 session（D2 使用）
 
 # 需要在启动/测试前确保存在的子目录
@@ -25,6 +26,7 @@ ALL_DATA_DIRS = [
     SUBMISSIONS_DIR,
     LOGS_DIR,
     ACCESS_LOGS_DIR,
+    ROLE_CHANGES_DIR,
     SESSIONS_DIR,
 ]
 
