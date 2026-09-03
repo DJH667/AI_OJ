@@ -13,7 +13,7 @@
 - **主轨道（必达，40 分）**：公共骨架 → Step4 用户 → Step1 题目 → Step2 评测 → Step3 评测管理 → Step5 日志审计 → Step6 前端 → 回归走查。
 - **并行轨道（冲刺 10 分）**：AI 智能命题（R1–R4 + 质量打磨），利用 D5–D7 每日开发末尾的 +0.5–1h 缝隙与 9.9 晚/9.10 上午弹性推进；**若主轨道 9.9 前未全绿，AI 自动收缩为 R1–R4 最小闭环（保底约 4–5 分），基础优先**。
 - **开发顺序说明**：Step4（用户/Session/权限依赖）先于 Step1–3，使后续所有接口一次带鉴权、避免 Step4 后返工回填（验收点不变，官方 Step 编号只是文档顺序）。
-- **熟悉机制（用户另出时间）**：每阶段结束在 `docs/` 产出《实现说明 + 代码导读 + 自测用例清单》；每日开发开始时用 5–10 分钟过一遍前日交付与您的疑问（不占开发主体时间）；开发中您可随时在场提问。
+- **熟悉机制（用户另出时间）**：每阶段结束在 `reports/` 产出《实现说明 + 代码导读 + 自测用例清单》；每日开发开始时用 5–10 分钟过一遍前日交付与您的疑问（不占开发主体时间）；开发中您可随时在场提问。
 
 ## 2. 时间账
 
@@ -39,7 +39,7 @@
 - **目录结构（前后端分离，官方 Step6 任务 4）**：仓库内分 `backend/`（FastAPI 源码）与 `frontend/`（Streamlit app.py）；后端 `uvicorn` 起在 8000 端口，前端 `streamlit run` 起在 8501 端口，仅经 REST API + Cookie 会话交互（架构约定见 PROJECT_REQUIREMENTS §1.1）。
 - **我侧**：`E:\程序\python\大作业-2` 建 venv + `requirements.txt`（fastapi uvicorn pydantic streamlit bcrypt psutil httpx pytest python-multipart）；确认 git 仓库与 `.gitignore`（排除 venv/`__pycache__`/数据目录/密钥）。
 - **公共层**：统一响应 `{code,msg,data}` 工具；全局异常处理器（顺序 401>403>400>429>409>404>500，422→400）；存储目录规划（`problems/ users/ submissions/ logs/`，**全 JSON 文件**持久化，方案已定 dec-0f895a1ddd678090）；`POST /api/reset/`；启动钩子创建初始管理员 `admin/admintestpassword`。
-- **交付**：`uvicorn` 可启动、`POST /api/reset/` 可调用；`docs/` 更新《D1 实现说明与导读》。
+- **交付**：`uvicorn` 可启动、`POST /api/reset/` 可调用；`reports/` 更新《D1 实现说明与导读》。
 - **自测**：reset 返回 `{"code":200,"msg":"system reset successfully","data":null}`；错误响应各状态码抽样验证。
 
 ### D2 9.4（五）用户系统 = 官方 Step4（3h）
@@ -100,7 +100,7 @@
 ## 5. Git 与文档纪律
 
 - 提交遵循 Conventional Commits：`feat(step4): ...` / `fix(judge): ...` / `docs: ...`；每天至少一次 commit；**禁止提交大文件（.gitignore 覆盖数据/密钥/venv）**。
-- 每阶段在 `docs/` 落两份产物：《需求偏差标注》与《实现说明 + 代码导读 + 自测清单》（您的熟悉材料）；git 提交按阶段推进，便于您逐 commit diff 阅读。
+- 每阶段在 `reports/` 落两份产物：《需求偏差标注》与《实现说明 + 代码导读 + 自测清单》（您的熟悉材料）；git 提交按阶段推进，便于您逐 commit diff 阅读。
 - GitLab 作业仓库就绪后：`git remote add origin <作业仓库URL>`、`git remote add upstream <助教示例仓库>`，按 gitpull 教程拉取更新（认证用 GitLab Personal Access Token）。
 
 ## 6. 待您提供/准备
