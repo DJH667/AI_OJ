@@ -1,0 +1,23 @@
+{
+  "id": "P1002",
+  "title": "求最大值",
+  "description": "给定 n 个整数，输出其中的最大值。",
+  "input_description": "第一行一个整数 n（1 <= n <= 10^5）；第二行 n 个整数，以空格分隔。",
+  "output_description": "输出这 n 个数中的最大值。",
+  "samples": [
+    { "input": "3\n1 5 -2", "output": "5" }
+  ],
+  "constraints": "1 <= n <= 10^5；各数范围 [-10^9, 10^9]",
+  "testcases": [
+    { "input": "3\n1 5 -2", "output": "5" },
+    { "input": "1\n-7", "output": "-7" },
+    { "input": "5\n-1 -1 -1 -1 -1", "output": "-1" },
+    { "input": "2\n1000000000 -1000000000", "output": "1000000000" }
+  ],
+  "time_limit": 2.0,
+  "memory_limit": 128,
+  "author": "oj-team",
+  "difficulty": "普及-",
+  "difficulty_score": 3.0,
+  "tags": ["模拟"]
+}

@@ -1,0 +1,152 @@
+"""题目管理服务（官方 Step1）。
+
+字段契约严格遵循 api.md Step1 添加题目：
+必填 id/title/description/input_description/output_description/samples/constraints/testcases；
+可选 hint/source/tags/time_limit(float 默认 3)/memory_limit(int 默认 128)/author/difficulty。
+- 全 JSON 存储：problems/{quote(id)}.json；
+- GET 详情返回全部字段，缺失可选字段按"本类型默认值"补齐（str→""、list→[]，
+  time_limit→3.0、memory_limit→128，见 api.md"默认字段需返回类型默认值"）；
+- AI 私有字段 difficulty_score：仅由 save_internal 写入服务端文件，**不参与任何对外 API**
+  （用户指示 2026-09-03，隐藏字段）。
+"""
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
+
+from app import config
+from app.core.exceptions import ApiError
+from app.core.messages import (
+    INVALID_PROBLEM_FIELDS,
+    PROBLEM_ALREADY_EXISTS,
+    PROBLEM_ID_MISMATCH,
+    PROBLEM_NOT_FOUND,
+)
+from app.db import store
+
+
+class Case(BaseModel):
+    input: str
+    output: str
+
+
+class ProblemIn(BaseModel):
+    """POST/PUT /api/problems/ 请求体（对外契约，不含 difficulty_score）。"""
+
+    id: str
+    title: str
+    description: str
+    input_description: str
+    output_description: str
+    samples: List[Case]
+    constraints: str
+    testcases: List[Case]
+    # 可选
+    hint: Optional[str] = None
+    source: Optional[str] = None
+    tags: Optional[List[str]] = None
+    time_limit: Optional[float] = Field(default=None, gt=0)
+    memory_limit: Optional[int] = Field(default=None, gt=0)
+    author: Optional[str] = None
+    difficulty: Optional[str] = None
+
+
+# GET 详情缺失可选字段的类型默认值
+STR_DEFAULTS = {"hint": "", "source": "", "author": "", "difficulty": ""}
+NUMERIC_DEFAULTS = {"time_limit": 3.0, "memory_limit": 128}
+
+
+def _to_storage(problem: ProblemIn) -> dict:
+    """存储表示：仅保留提供的字段（None 剔除），id 与内容一致。"""
+    data = problem.model_dump(exclude_none=True)
+    return data
+
+
+def get(problem_id: str) -> Optional[dict]:
+    return store.load_json(config.PROBLEMS_DIR, problem_id)
+
+
+def get_all() -> list[dict]:
+    return [data for _, data in store.iter_all(config.PROBLEMS_DIR)]
+
+
+def save(problem_id: str, data: dict) -> None:
+    store.save_json(config.PROBLEMS_DIR, problem_id, data)
+
+
+def create(problem: ProblemIn) -> dict:
+    if get(problem.id) is not None:
+        raise ApiError(409, PROBLEM_ALREADY_EXISTS)
+    save(problem.id, _to_storage(problem))
+    return {"id": problem.id}
+
+
+def update(problem_id: str, problem: ProblemIn) -> dict:
+    if problem.id != problem_id:
+        raise ApiError(400, PROBLEM_ID_MISMATCH)
+    if get(problem_id) is None:
+        raise ApiError(404, PROBLEM_NOT_FOUND)
+    save(problem_id, _to_storage(problem))
+    return {"id": problem_id}
+
+
+def to_public(data: dict) -> dict:
+    """对外详情视图：全字段 + 缺失可选字段补类型默认值；不含 difficulty_score 等私有键。"""
+    out = {
+        "id": data["id"],
+        "title": data.get("title", ""),
+        "description": data.get("description", ""),
+        "input_description": data.get("input_description", ""),
+        "output_description": data.get("output_description", ""),
+        "samples": data.get("samples", []),
+        "constraints": data.get("constraints", ""),
+        "testcases": data.get("testcases", []),
+    }
+    for key, default in STR_DEFAULTS.items():
+        out[key] = data.get(key, default)
+    for key, default in NUMERIC_DEFAULTS.items():
+        out[key] = data.get(key, default)
+    out["tags"] = data.get("tags", [])
+    return out
+
+
+def summary(data: dict) -> dict:
+    """列表条目：{id, title}。"""
+    return {"id": data["id"], "title": data.get("title", "")}
+
+
+def delete_cascade(problem_id: str) -> None:
+    """删除题目及级联清理（api.md + 助教确认 2026-09-02/09-03）：
+    testcases（随题目文件）→ 该题 submissions → 回退相关用户 submit/resolve_count
+    → access 审计中该 problem_id 的记录 → 删除题目文件。"""
+    from app.services import submissions as submission_service
+
+    if get(problem_id) is None:
+        raise ApiError(404, PROBLEM_NOT_FOUND)
+    submission_service.delete_all_for_problem(problem_id)
+    for key, log in store.iter_all(config.ACCESS_LOGS_DIR):
+        if log.get("problem_id") == problem_id:
+            store.delete_json(config.ACCESS_LOGS_DIR, key)
+    store.delete_json(config.PROBLEMS_DIR, problem_id)
+
+
+def validate_raw(body: dict) -> ProblemIn:
+    """把 JSON 原始 body 转为校验模型（供路由使用；类型错误统一转 400 由异常层处理）。"""
+    try:
+        return ProblemIn(**body)
+    except Exception as exc:  # pydantic.ValidationError
+        raise ApiError(400, f"{INVALID_PROBLEM_FIELDS}: {exc}") from exc
+
+
+def save_internal(data: dict) -> None:
+    """服务端内部写入（示例题导入 / AI 模块使用；可含 difficulty_score 私有键，不校验对外契约）。"""
+    problem_id = str(data["id"])
+    save(problem_id, data)
+
+
+def load_sample(name: str) -> dict:
+    """从版本库 sample_problems/ 读取示例题 JSON。"""
+    path: Path = config.SAMPLE_PROBLEMS_DIR / f"{name}.json"
+    import json
+
+    return json.loads(path.read_text(encoding="utf-8"))

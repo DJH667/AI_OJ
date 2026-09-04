@@ -38,6 +38,11 @@ def get_by_username(username: str) -> dict | None:
     return store.load_json(config.USERS_DIR, username)
 
 
+def save_user(user: dict) -> None:
+    """整体落盘（统计更新等内部使用）。"""
+    store.save_json(config.USERS_DIR, user["username"], user)
+
+
 def get_by_user_id(user_id: str) -> dict | None:
     for _, user in store.iter_all(config.USERS_DIR):
         if user.get("user_id") == user_id:

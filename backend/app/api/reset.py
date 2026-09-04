@@ -17,6 +17,7 @@ from app.core.exceptions import ApiError
 from app.core.response import success
 from app.db import store
 from app.db.seed import ensure_admin
+from app.services import languages as lang_service
 
 router = APIRouter()
 
@@ -27,6 +28,7 @@ async def reset_system(request: Request):
         current = await get_current_user(request)
         if current["role"] != "admin":
             raise ApiError(403, messages.PERMISSION_DENIED)
-    store.clear_all()          # 用户/题目/提交/日志/会话全部清空
-    ensure_admin()             # 重建初始管理员
+    store.clear_all()                            # 用户/题目/提交/语言/日志/会话全部清空
+    ensure_admin()                               # 重建初始管理员
+    lang_service.ensure_builtin_languages()      # 重建内置 python/cpp（注册接口仍可用）
     return success(msg="system reset successfully")

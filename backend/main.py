@@ -13,18 +13,23 @@ from fastapi import FastAPI
 
 from app import config  # noqa: F401  确保配置模块可导入（供交互式调试）
 from app.api import auth as auth_api
+from app.api import languages as languages_api
+from app.api import problems as problems_api
 from app.api import reset as reset_api
+from app.api import submissions as submissions_api
 from app.api import users as users_api
 from app.core.exceptions import register_exception_handlers
 from app.db import store
 from app.db.seed import ensure_admin
+from app.services import languages as lang_service
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动：建数据目录 + 创建初始管理员（幂等）
+    # 启动：建数据目录 + 初始管理员 + 内置语言（均幂等）
     store.ensure_dirs()
     ensure_admin()
+    lang_service.ensure_builtin_languages()
     yield
 
 
@@ -34,6 +39,9 @@ def create_app() -> FastAPI:
     application.include_router(reset_api.router)
     application.include_router(auth_api.router)
     application.include_router(users_api.router)
+    application.include_router(problems_api.router)
+    application.include_router(languages_api.router)
+    application.include_router(submissions_api.router)
     return application
 
 

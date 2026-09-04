@@ -14,16 +14,21 @@ DATA_DIR = BASE_DIR / "data"
 PROBLEMS_DIR = DATA_DIR / "problems"        # 题目：每题一个 JSON
 USERS_DIR = DATA_DIR / "users"              # 用户：每个用户名一个 JSON
 SUBMISSIONS_DIR = DATA_DIR / "submissions"  # 提交：每条一个 JSON
+LANGUAGES_DIR = DATA_DIR / "languages"      # 语言注册表：每种语言一个 JSON
 LOGS_DIR = DATA_DIR / "logs"                # 评测日志目录
 ACCESS_LOGS_DIR = LOGS_DIR / "access"       # 日志访问审计
 ROLE_CHANGES_DIR = LOGS_DIR / "role_changes"  # 权限变更操作日志（Step4）
 SESSIONS_DIR = DATA_DIR / "sessions"        # 服务端 session（D2 使用）
+
+# 版本库内的示例题（开发联调用，不自动导入；运行时题目库在 PROBLEMS_DIR）
+SAMPLE_PROBLEMS_DIR = BASE_DIR / "sample_problems"
 
 # 需要在启动/测试前确保存在的子目录
 ALL_DATA_DIRS = [
     PROBLEMS_DIR,
     USERS_DIR,
     SUBMISSIONS_DIR,
+    LANGUAGES_DIR,
     LOGS_DIR,
     ACCESS_LOGS_DIR,
     ROLE_CHANGES_DIR,

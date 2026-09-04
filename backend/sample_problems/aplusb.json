@@ -1,0 +1,22 @@
+{
+  "id": "P1001",
+  "title": "A+B Problem",
+  "description": "给定两个整数 a 和 b，输出它们的和。",
+  "input_description": "输入一行两个整数 a 和 b，以空格分隔。",
+  "output_description": "输出一个整数，为 a+b 的结果。",
+  "samples": [
+    { "input": "1 2", "output": "3" }
+  ],
+  "constraints": "|a|, |b| <= 10^9",
+  "testcases": [
+    { "input": "1 2", "output": "3" },
+    { "input": "-5 3", "output": "-2" },
+    { "input": "0 0", "output": "0" },
+    { "input": "1000000000 1000000000", "output": "2000000000" },
+    { "input": "-1000000000 -1000000000", "output": "-2000000000" }
+  ],
+  "time_limit": 1.0,
+  "memory_limit": 256,
+  "author": "oj-team",
+  "difficulty": "入门"
+}
