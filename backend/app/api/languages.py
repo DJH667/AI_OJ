@@ -18,5 +18,6 @@ async def register_language(body: lang_service.LanguageIn, current: dict = Depen
 
 
 @router.get("/api/languages/")
-async def list_languages():
+async def list_languages(current: dict = Depends(get_current_user)):
+    # 权限回填（Step4 页面）：未登录用户不得对任何资源增删查改 → Step1–3 查接口亦需登录
     return success(msg="success", data={"name": lang_service.all_names()})

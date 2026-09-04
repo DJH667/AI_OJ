@@ -49,7 +49,12 @@ def get(name: str) -> dict | None:
 
 
 def all_names() -> list[str]:
-    return sorted(store.list_keys(config.LANGUAGES_DIR))
+    """支持语言列表：内置顺序（python, cpp）在前，动态注册按名称序追加
+    （api.md 示例 {"name": ["python", "cpp"]}，评审 2026-09-04）。"""
+    names = set(store.list_keys(config.LANGUAGES_DIR))
+    builtin = [n for n in ("python", "cpp") if n in names]
+    others = sorted(n for n in names if n not in ("python", "cpp"))
+    return builtin + others
 
 
 def register(lang: LanguageIn) -> dict:

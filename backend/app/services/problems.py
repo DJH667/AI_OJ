@@ -17,7 +17,6 @@ from pydantic import BaseModel, Field
 from app import config
 from app.core.exceptions import ApiError
 from app.core.messages import (
-    INVALID_PROBLEM_FIELDS,
     PROBLEM_ALREADY_EXISTS,
     PROBLEM_ID_MISMATCH,
     PROBLEM_NOT_FOUND,
@@ -91,9 +90,10 @@ def update(problem_id: str, problem: ProblemIn) -> dict:
 
 
 def to_public(data: dict) -> dict:
-    """对外详情视图：全字段 + 缺失可选字段补类型默认值；不含 difficulty_score 等私有键。"""
+    """对外详情视图：全字段 + 缺失可选字段补类型默认值；不含 difficulty_score 等私有键。
+    评审 P3（2026-09-04）：内部文件（save_internal/示例题）缺必填键时用 get 兜底，避免 500。"""
     out = {
-        "id": data["id"],
+        "id": data.get("id", ""),
         "title": data.get("title", ""),
         "description": data.get("description", ""),
         "input_description": data.get("input_description", ""),
@@ -128,14 +128,6 @@ def delete_cascade(problem_id: str) -> None:
         if log.get("problem_id") == problem_id:
             store.delete_json(config.ACCESS_LOGS_DIR, key)
     store.delete_json(config.PROBLEMS_DIR, problem_id)
-
-
-def validate_raw(body: dict) -> ProblemIn:
-    """把 JSON 原始 body 转为校验模型（供路由使用；类型错误统一转 400 由异常层处理）。"""
-    try:
-        return ProblemIn(**body)
-    except Exception as exc:  # pydantic.ValidationError
-        raise ApiError(400, f"{INVALID_PROBLEM_FIELDS}: {exc}") from exc
 
 
 def save_internal(data: dict) -> None:

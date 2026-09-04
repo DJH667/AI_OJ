@@ -75,7 +75,8 @@ def _wait_judged(sid, timeout=15.0):
 def test_languages_builtin_and_list(client):
     r = client.get("/api/languages/")
     assert r.status_code == 200
-    assert set(r.json()["data"]["name"]) >= {"python", "cpp"}
+    # 内置顺序与 api.md 示例一致 ["python","cpp"]（评审 2026-09-04）
+    assert r.json()["data"]["name"] == ["python", "cpp"]
 
 
 def test_register_language_rules(client):
@@ -86,8 +87,10 @@ def test_register_language_rules(client):
     assert "go" in client.get("/api/languages/").json()["data"]["name"]
     assert client.post("/api/languages/", json=body).status_code == 400
     assert client.post("/api/languages/", json=body).json()["msg"] == "language already exists"
+    # 查询与注册均需登录（权限回填：未登录不得查改任何资源；评审 2026-09-04）
     anon = TestClient(app)
     assert anon.post("/api/languages/", json=body).status_code == 401
+    assert anon.get("/api/languages/").status_code == 401
 
 
 # ---------- 提交与评测 ----------
