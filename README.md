@@ -25,11 +25,13 @@
 ## 常用命令
 
 ```bash
-# 启动后端（backend/ 目录下；8000 端口）
-../.venv/Scripts/python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000
+# 后端依赖（Windows：.venv；WSL Linux：~/oj-venv —— 评测需 Linux，推荐 WSL）
+#  WSL 首次：wsl python3 -m venv ~/oj-venv && wsl ~/oj-venv/bin/pip install fastapi "uvicorn[standard]" pydantic httpx pytest psutil bcrypt python-multipart
+wsl ~/oj-venv/bin/python -m pytest tests -q              # 全量测试（Linux，含评测执行）
 
-# 运行测试
-cd backend && ../.venv/Scripts/python.exe -m pytest tests -q
+# 启动后端（backend/ 目录下；8000 端口）
+wsl ~/oj-venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000
+# Windows 侧备用：../.venv/Scripts/python.exe -m uvicorn main:app --port 8000（评测执行不可用）
 ```
 
 > Windows 与 WSL 双环境提示：venv 为 Windows 原生（`.venv/Scripts/`）；在 WSL 内
