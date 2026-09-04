@@ -40,15 +40,21 @@ def test_admin_seeded():
 
 
 def test_reset_cleanup_and_reseed():
+    from fastapi.testclient import TestClient
+
     store.clear_all()
     ensure_admin()
     # 制造脏数据
     store.save_json(config.USERS_DIR, "alice", {"username": "alice", "role": "user"})
     store.save_json(config.PROBLEMS_DIR, "p1", {"id": "p1", "title": "x"})
 
-    r = _run(_request("POST", "/api/reset/"))
-    assert r.status_code == 200
-    assert r.json() == {"code": 200, "msg": "system reset successfully", "data": None}
+    with TestClient(app) as c:
+        # reset 需管理员（api.md 异常 401/403）：先登录初始 admin
+        r = c.post("/api/auth/login", json={"username": config.ADMIN_USERNAME, "password": config.ADMIN_PASSWORD})
+        assert r.status_code == 200
+        r = c.post("/api/reset/")
+        assert r.status_code == 200
+        assert r.json() == {"code": 200, "msg": "system reset successfully", "data": None}
     # 题目清空；用户只剩初始管理员
     assert store.list_keys(config.PROBLEMS_DIR) == []
     assert store.list_keys(config.USERS_DIR) == [config.ADMIN_USERNAME]

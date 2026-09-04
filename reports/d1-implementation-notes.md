@@ -58,7 +58,7 @@ backend/
 
 4. **reset**（`api/reset.py`）
    - 清空全部业务子目录 → 重建 admin；响应 msg=`system reset successfully`。
-   - **未做权限校验**：api.md 写"仅管理员（测试环境可不校验）"，为让自动评测可直接调用，本项目按不校验处理（已在注释说明）。
+   - **权限（2026-09-03 按 api.md 修正）**：默认 require admin——未登录 401、已登录非管理员 403（api.md 异常表含 401/403，异常顺序 401>403）；"测试环境可不校验"由 `config.RESET_REQUIRE_ADMIN` 开关支持（默认 True，评测确需免登录可置 False）。
    - "退出当前登录状态"：D2 接入服务端 session 后，reset 会顺带清空 `data/sessions/`。
 
 5. **Windows/WSL 双环境**
@@ -101,11 +101,11 @@ cd backend
 | P1/P3 404 msg 英文契约化 | 观察项：D2 起业务 msg 统一中文契约表时一并落实 |
 | P2 422→400 实测 | D2 出现带 body 接口（注册）后补测试 |
 | P3 save_json 无原子性 | ✅ 已落地（9.3 晚补）：`store.save_json` 改 tmp + `os.replace` 原子写 |
-| P2 reset 不鉴权观察项 | 验收前按助教口径复核（已在下方遗留清单） |
+| P2 reset 不鉴权观察项 | ✅ 已按 api.md 修正为管理员鉴权（未登录 401/非管理员 403）+ `config.RESET_REQUIRE_ADMIN` 开关（2026-09-03） |
 
 > 测试备注：Starlette 在纯 `ASGITransport` 下会把已处理的 500 异常 re-raise 给调用方，故 500 用例改用 `TestClient(app, raise_server_exceptions=False)` 断言真实响应体。
 
 ## 7. 遗留/风险
 
 - `error_info` 等脱敏、日志防泄露属 D2–D5 逐项落实。
-- 若 reset 的"不鉴权"选择与自动评测预期不符（评测若要求必须 admin 才能 reset），届时按实测调整。
+- reset 鉴权已按 api.md 修正为管理员鉴权（401/403）；若评测确需免登录调用 reset，置 `config.RESET_REQUIRE_ADMIN=False`（见 §3.4）。

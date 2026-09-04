@@ -16,10 +16,13 @@ PASSWORD = "secret123"
 
 @pytest.fixture()
 def client():
-    """每个测试独立：全新 TestClient + reset 恢复初始环境（仅剩 admin）。"""
+    """每个测试独立：全新 TestClient；admin 登录后 reset 恢复初始环境（仅剩 admin）。
+
+    reset 本身需管理员鉴权（api.md 异常 401/403），故先登录初始 admin 再调用。
+    """
     with TestClient(app) as c:
-        r = c.post("/api/reset/")
-        assert r.status_code == 200
+        assert _login(c, config.ADMIN_USERNAME, config.ADMIN_PASSWORD).status_code == 200
+        assert c.post("/api/reset/").status_code == 200
         yield c
 
 
@@ -124,10 +127,12 @@ def test_protected_route_requires_login(client):
 
 def test_banned_login_rejected_403_and_session_invalidated_immediately():
     with TestClient(app) as c_user, TestClient(app) as c_admin:
-        assert c_user.post("/api/reset/").status_code == 200
+        # reset 需管理员：在 c_admin 登录后调用，随后会话被 reset 清空需重登
+        assert _login(c_admin, config.ADMIN_USERNAME, config.ADMIN_PASSWORD).status_code == 200
+        assert c_admin.post("/api/reset/").status_code == 200
+        assert _login(c_admin, config.ADMIN_USERNAME, config.ADMIN_PASSWORD).status_code == 200
         assert _register(c_user, "alice").status_code == 200
         assert _login(c_user, "alice").status_code == 200
-        assert _login(c_admin, config.ADMIN_USERNAME, config.ADMIN_PASSWORD).status_code == 200
         assert c_user.get("/api/users/1").status_code == 200
 
         # admin 将 alice 设为 banned
@@ -246,7 +251,26 @@ def test_reset_clears_sessions(client):
     _register(client, "alice")
     _login(client, "alice")
     assert client.get("/api/users/1").status_code == 200
-    # reset 清空用户/会话（接口本身不鉴权）
-    assert client.post("/api/reset/").status_code == 200
+    # reset 需管理员（用独立 admin client 调用），清空用户与全部会话
+    admin = _admin_client()
+    assert admin.post("/api/reset/").status_code == 200
     # 旧会话立即失效
     assert client.get("/api/users/1").status_code == 401
+
+
+def test_reset_requires_admin_permission():
+    with TestClient(app) as setup, TestClient(app) as anon, TestClient(app) as user_c, TestClient(app) as adm:
+        # 先由 admin 恢复干净初始环境
+        assert _login(setup, config.ADMIN_USERNAME, config.ADMIN_PASSWORD).status_code == 200
+        assert setup.post("/api/reset/").status_code == 200
+        # 未登录 → 401
+        assert anon.post("/api/reset/").status_code == 401
+        # 普通用户登录后 → 403（权限不足，异常顺序 401>403 语义：先鉴权后判角色）
+        assert _register(user_c, "alice").status_code == 200
+        assert _login(user_c, "alice").status_code == 200
+        r = user_c.post("/api/reset/")
+        assert r.status_code == 403
+        assert r.json()["code"] == 403 and r.json()["msg"] == "permission denied"
+        # 管理员 → 200
+        assert _login(adm, config.ADMIN_USERNAME, config.ADMIN_PASSWORD).status_code == 200
+        assert adm.post("/api/reset/").status_code == 200

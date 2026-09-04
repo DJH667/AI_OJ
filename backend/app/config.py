@@ -34,3 +34,7 @@ ALL_DATA_DIRS = [
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "admintestpassword"
 ADMIN_USER_ID = "0"
+
+# reset 鉴权开关：api.md 权限为"仅管理员（测试环境可不校验）"、异常含 401/403
+# ⇒ 默认按仅管理员鉴权；若评测确需免登录调用，置 False 放宽（"测试环境可不校验"）。
+RESET_REQUIRE_ADMIN = True
