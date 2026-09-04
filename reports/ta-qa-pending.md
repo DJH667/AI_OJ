@@ -5,7 +5,7 @@
 
 ---
 
-## 问题 1：`POST /api/reset/` 的鉴权与评测调用方式
+## 问题 1：`POST /api/reset/` 的鉴权与评测调用方式（✅ 已答复 2026-09-04）
 
 **官方原文**（api.md，测试支持：系统重置）：
 > 路径：`POST /api/reset/`
@@ -17,7 +17,7 @@
 
 **想确认**：自动评测调用 reset 前是否会先以 `admin/admintestpassword` 登录？（若是则现有实现无需任何调整；若评测会免登录直接调用，请告知——我们将开关置 False 以兼容。）
 
-**答复**：（待填）
+**答复**：✅ 会先登录 admin（2026-09-04 用户确认）。当前实现（`RESET_REQUIRE_ADMIN=True`，未登录 401 / 非管理员 403）无需调整。
 
 ---
 
@@ -65,3 +65,15 @@
 **想确认**：access 审计与用户列表在不提供任何筛选条件时，应返回全部还是视为参数错误？
 
 **答复**：两项全空返回错误码（400）；两项有一项不空，按照"查询评测列表"所述来。
+
+---
+
+## 问题 5（新增 2026-09-04）：编译错误（CE）的 submission 状态归属
+
+**官方原文**（api.md）：submission 状态为 pending / success / error；"查询评测结果"示例为 status success + compile_info{result,message}；CE 的归属未明示。Step3 列表裁剪规则："status 为 error/pending 时只需返回 submission_id 与 status"。
+
+**当前实现**：CE → **status=success**（score=0、counts=总测例×10、compile_info.result="compile error"、run_info=null、details=[]——评测流程正常走完并返回结果）；error 仅用于评测框架级问题（题目/语言缺失等）。
+
+**想确认**：编译错误（CE）的 submission 状态应为 success 还是 error？（影响 Step3 列表中 CE 提交是否可见 score/compile_info）
+
+**答复**：（待填）

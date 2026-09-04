@@ -31,7 +31,7 @@ backend/app/services/
 └── judge.py        # 评测执行器：编译/逐测例运行/归一比对/状态机/score-counts/resolve 更新
 backend/app/api/
 ├── problems.py     # 5 个题目接口（DELETE 仅管理员）
-├── languages.py    # POST（登录）/GET（公开）
+├── languages.py    # POST/GET 均需登录（权限回填：未登录不得查改任何资源；评审 2026-09-04 修正）
 └── submissions.py  # POST 提交（429>404 顺序、异步评测调度）
 backend/sample_problems/{aplusb,maxn}.json   # 示例题（版本库内，不自动导入）
 backend/tests/test_d3_problems.py / test_d3_judge.py
@@ -73,4 +73,17 @@ wsl ~/oj-venv/bin/python -m pytest tests -q    # 40 passed（D1 5 + D2 15 + D3 p
 - psutil 内存监控 → MLE 与测例真实 memory 值（现 memory=0 占位）；详情 time 精确化。
 - Step3：GET /api/submissions/（列表筛选/可见性/摘要裁剪）、GET …/{id}、PUT …/rejudge。
 - 真实 HTTP 端到端冒烟（uvicorn+curl 提交后轮询）放到 Step3 查询接口就绪后做。
-- 评测并行安全：当前依赖"单用户串行"假设；to_thread 默认线程池多线程，评测函数间无共享写冲突（各写自己文件），reset 与评测并发未防护（评测不会与评测冲突）。
+- 评测任务已加**全局串行锁**（api/submissions.py `JUDGE_LOCK`，评审 P1 2026-09-04），统计读-改-写安全；reset 由评测脚本在提交前调用，与评测无并发窗口。
+
+## 6. 评审意见处理（2026-09-04，comments/2026-09-04-review-b51ba75.md）
+
+| 意见 | 处理 |
+|---|---|
+| reset Q1（自动评测先登录 admin） | ✅ 已确认：保持管理员鉴权 + `RESET_REQUIRE_ADMIN` 开关，无需调整（ta-qa-pending Q1 回填） |
+| P1 并发竞态（resolve/submit 读改写非原子） | ✅ `api/submissions.py` 加全局 `asyncio.Lock`（`_judge_serial`），评测任务排队串行 |
+| P2 `GET /api/languages/` 顺序 | ✅ `all_names` 按内置顺序返回 `["python","cpp"]`（与 api.md 示例一致） |
+| P2 `GET /api/languages/` 未鉴权 | ✅ 补 `Depends(get_current_user)`（权限回填：未登录不得查改任何资源） |
+| P2 CE 的 submission 状态归属 | 决策：CE → status=success（流程正常完成，结果见 compile_info）；列入 ta-qa-pending Q5 待向助教核实 |
+| P3 `_normalize` 死代码 | ✅ 修复（`while lines and lines[-1] == ""`） |
+| P3 编译绝对路径泄露 /tmp | ✅ 编译与运行 `cwd=临时目录` + 相对路径 `./main.ext`，g++ 报错不再带临时目录前缀 |
+| P3 `to_public` 缺必填键 500 / `validate_raw` 死代码 | ✅ `to_public` 全 `get` 兜底；`validate_raw` 删除 |
