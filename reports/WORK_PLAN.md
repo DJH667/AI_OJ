@@ -49,7 +49,7 @@
 - 交付：curl/pytest 自测脚本全绿 + 导读文档。熟悉重点：Session 原理、bcrypt、FastAPI 依赖注入做鉴权。
 
 ### D3 9.5（六）题目管理 Step1 + 评测 Step2 主体（4–6h）
-- **Step1**：Problem 模型（pydantic，必选/可选、类型校验、默认字段 str→""/list→[]）；JSON 存取（id→文件）；5 个 CRUD 接口带鉴权（删除仅管理员并**级联清理**该题 submissions/评测日志/access 审计、409 id 已存在、PUT 的 body id 与路径一致）；**AI 扩展字段 `difficulty_score`(float，可选) 一并纳入题目模型**；预置 2 道示例题（含边界与卡规模测例，其中 1 道带 difficulty_score 供 AI 抽题联调）。
+- **Step1**：Problem 模型（pydantic，必选/可选、类型校验、默认字段 str→""/list→[]）；JSON 存取（id→文件）；5 个 CRUD 接口带鉴权（删除仅管理员并**级联清理**该题 submissions/评测日志/access 审计、409 id 已存在、PUT 的 body id 与路径一致）；**AI 私有字段 `difficulty_score`(float，可选) 一并纳入题目文件（仅服务端存储，不进 API 响应，供 AI 本地读取）**；预置 2 道示例题（含边界与卡规模测例，其中 1 道带 difficulty_score 供 AI 抽题联调）。
 - **Step2 主体**：语言注册表（内置 python/cpp + `POST/GET /api/languages/`，`{src}`/`{exe}` 路径替换）；submissions 存储；评测流程（存码→编译/运行→逐测例→输出归一比对（忽略行末空格与末尾多余换行）→ AC/WA/RE/CE/UNK 映射）；`asyncio.create_task` 异步评测（单用户串行即可）；429（1min >3 次）。
 - 交付：Step1 接口自测全绿；python 简单题端到端评测跑通（WSL 或本机 python3）。
 - 熟悉重点：题目模型字段、评测状态机、计分（score=通过数×10、counts=总数×10）。

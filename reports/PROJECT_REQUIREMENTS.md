@@ -44,7 +44,7 @@
 5. **Git 提交**：遵循 Conventional Commits（`feat`/`fix`/`docs` 等 + 简洁描述）；**不得把大文件提交进 git**（扣分项）。
 6. **Linux 兼容**：最终在 Linux 自动评测（g++、python3 等常用指令）。Windows 同学建议用 WSL2 开发/测试。
 7. ⚠ **初始管理员**：系统启动自动创建 `admin` / `admintestpassword`。该密码为 **17 位全小写**（`admin`+`test`+`password`），满足注册校验（用户名 3–40、密码 ≥6），与注册规则无冲突；注册/建管理员接口对重名用户按 400 处理（api.md：注册"400 用户名已存在"，创建管理员同）。
-8. **测试支持接口**：`POST /api/reset/`（仅管理员，测试环境可不校验）——清空用户/题目/提交数据、退出登录、重建初始管理员。**自动评测会使用，必须实现**。
+8. **测试支持接口**：`POST /api/reset/`（仅管理员，测试环境可不校验）——清空用户/题目/提交数据、退出登录、重建初始管理员。**自动评测会使用，必须实现**。⚠ 实现语义（用户指示 2026-09-03）：reset 把动态注册语言重置回内置 python/cpp（回到初始环境），但**用户动态注册新语言的接口能力（`POST /api/languages/`）不受影响、始终保留**。
 
 ## 4. 数据模型与通用约定
 
@@ -53,7 +53,7 @@
 ### 4.1 题目（problem）字段
 必填：`id`(str)、`title`、`description`、`input_description`、`output_description`、`samples`(list of {input,output})、`constraints`、`testcases`(list of {input,output})
 可选：`hint`、`source`、`tags`(list)、`time_limit`(float，api.md 标注默认 3s)、`memory_limit`(int，api.md 标注默认 128MB)、`author`、`difficulty`(str，api.md 契约，展示标签如"入门")
-- ⚠ **AI 扩展字段（向后兼容新增，不破坏 api.md）**：`difficulty_score`(float，可选，建议范围 0–10) 用于数值化难度，供 AI 模块抽取"难度相近的站内题"作参考（用户决策 dec-7b47335beaa64320）；`difficulty`(str) 保留原契约不动，未提供 score 时可由标签映射估值。
+- ⚠ **AI 内部私有字段（用户指示 2026-09-03）**：`difficulty_score`(float，可选，建议范围 0–10) 用于数值化难度，供 AI 模块抽取"难度相近的站内题"作参考（决策 dec-7b47335beaa64320）。**仅存储于服务端题目配置文件中（本机），为隐藏字段，不参与对外 API 传回**——题目 CRUD 接口（POST/PUT 不收、GET 详情/列表不回传该字段），AI 模块读取本地文件使用。`difficulty`(str) 保留原 api.md 契约不动。
 - 存储建议：本地目录 `problems/`，每题一个 JSON 文件（文件名建议含 id，转义不安全字符）。
 - 查询详情时默认字段需返回本类型默认值（str→""、list→[]）。
 - `samples`（展示给用户）与 `testcases`（评测用）分开。
@@ -140,6 +140,7 @@
 - **R2**：可配置 provider_url、model、api_key（不得硬编码在代码中）；配置**必须实际用于后续请求**；密钥不得在日志/页面响应/错误信息中明文泄露。
 - **R3**：执行期间持续展示可观察进度（流式/SSE/WebSocket/轮询皆可），禁止只在完成后一次性返回；中断必须**实际终止任务或阻止继续执行**（仅停前端动画不算），界面明确展示"已中断"。
 - **R4**：统计并清晰展示当前任务 Token 用量与费用；接口能区分输入/输出 Token 时应分开记录；费用 = 输入token/计价单位×输入单价 + 输出token/计价单位×输出单价；**说明计价依据**；接口不能提供完整用量时须说明统计/估算方式及限制。
+- ⚠ **模型接入（用户指示 2026-09-03）**：AI 模块**需要真实调用外部大模型**（非仅 mock），并**必须提供计费与 Token 用量统计**（R4 硬性）。候选提供商 **OpenRouter**（OpenAI 兼容端点 `/api/v1`，响应含 `usage.prompt_tokens/completion_tokens`，模型页公布每 1M token 的 input/output 定价）——model-config 的 `input_price/output_price/price_unit` 按所选模型定价填写；无 API key 阶段用本地 mock 打通流程，key 到位后切换真实调用（OpenRouter 与 OpenAI 兼容客户端可无缝替换）。
 - 工具调用/Agent Loop **不要求**（仅设计参考方向）。
 - 接口建议（可等价替换，替换时须在项目文档说明路径/参数/状态/响应）：`PUT /api/ai/model-config`、`POST /api/ai/problem-tasks/`、`GET /api/ai/problem-tasks/{id}`、`GET .../events`(SSE)、`PUT .../cancel`；任务状态至少区分 等待/执行/完成/中断/失败；取消已完成任务返回 409。
 
@@ -187,6 +188,9 @@
 6. **banned 会话语义**（dec-0f895a1ddd678090）：被 ban 后已登录会话**立即失效**——每次请求实时查库校验角色，被 ban 后下一次请求即 403。
 7. **存储方案**（同 dec）：**全 JSON 文件**（题目每题一 JSON；用户/提交/日志目录化 JSON；reset 删目录重建，详见 §4）。
 8. **开工**（同 dec）：9.2 晚提前铺环境（venv/依赖/目录骨架），D1 直接进入公共骨架编码。
+9. **difficulty_score 隐藏字段**（用户指示 2026-09-03）：仅存储于服务端题目文件，**不参与任何对外 API 传回**（CRUD 不收发），AI 模块本地读取使用。
+10. **AI 外部模型**（同指示）：AI 模块须**真实调用外部大模型**并提供**计费与 Token 用量统计**；候选提供商 **OpenRouter**（OpenAI 兼容 `/api/v1`）；无 key 阶段 mock 先行。
+11. **reset 与语言**（同指示）：reset 将动态注册语言重置回内置 python/cpp；**用户注册新语言接口 `POST /api/languages/` 始终保留**。
 
 **假设（未获用户否定前按此推进）：**
 4. **环境**：Windows 上开发，WSL2 + Ubuntu 做评测测试（Ubuntu 尚未安装，列入环境搭建首日）。
