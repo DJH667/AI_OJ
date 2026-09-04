@@ -40,7 +40,7 @@
 1. **异步接口**：所有 API 必须使用 FastAPI 的 `async def`；不使用异步拿不到本次作业分数。异步评测可参考 `asyncio.create_task`；评测只需支持单用户提交，不要求多用户同时提交。
 2. **响应协议**：所有接口 JSON 必须含 `code` 字段且与 HTTP 状态码一致；服务器必须设置对应 HTTP 状态码（不能全返回 200）。成功示例 `{"code": 200, "msg": "success", "data": ...}`；错误示例 `{"code": 404, "msg": "problem not found", "data": null}`。
 3. **异常处理顺序**：401 > 403 > 400 > 429 > 409 > 404 > 500。FastAPI 默认 422 校验错误需转为 400（用 `Depends`/`RequestValidationError` 中间件解决，FAQ 有示例）。
-4. **状态码语义**：200 正常 / 400 参数错误 / 401 未登录 / 403 权限不足或被 ban / 404 资源不存在 / 409 状态冲突（id 已存在、任务已结束）/ 429 频率超限（1 min 内提交超过 3 次）/ 500 服务器异常。
+4. **状态码语义**：200 正常 / 400 参数错误 / 401 未登录 / 403 权限不足或被 ban / 404 资源不存在 / 409 状态冲突（id 已存在、任务已结束）/ 429 频率超限（1 min 内提交超过 3 次，**按单人单题**，助教确认 2026-09-03）/ 500 服务器异常。
 5. **Git 提交**：遵循 Conventional Commits（`feat`/`fix`/`docs` 等 + 简洁描述）；**不得把大文件提交进 git**（扣分项）。
 6. **Linux 兼容**：最终在 Linux 自动评测（g++、python3 等常用指令）。Windows 同学建议用 WSL2 开发/测试。
 7. ⚠ **初始管理员**：系统启动自动创建 `admin` / `admintestpassword`。该密码为 **17 位全小写**（`admin`+`test`+`password`），满足注册校验（用户名 3–40、密码 ≥6），与注册规则无冲突；注册/建管理员接口对重名用户按 400 处理（api.md：注册"400 用户名已存在"，创建管理员同）。
@@ -95,13 +95,12 @@
 > 1. 普通用户查看题目详情时 **`testcases` 需要返回**（含全部字段与类型默认值，与 api.md 详情示例一致）；
 > 2. **题目修改（PUT）允许所有普通登录用户**（仅删除限管理员，与上表一致）；
 > 3. **修改题目或测试点后，历史已通过的提交不需要重新评测**——系统不自动触发 rejudge（rejudge 仅管理员手动调用）；
-> 4. **删除题目时级联删除**：testcases（随题目 JSON 删除）、该题全部 submissions、judge_log（submission 级评测日志与测例 details）、access_log 中该 problem_id 的审计记录。
-> 未定义项（建议必要时追问助教）：删除题目后历史提交曾计入的 `submit_count`/`resolve_count` 是否回退——当前默认**不回退**（统计视为历史快照，实现时在文档注明）。
+> 4. **删除题目时级联删除**：testcases（随题目 JSON 删除）、该题全部 submissions、judge_log（submission 级评测日志与测例 details）、access_log 中该 problem_id 的审计记录；并**回退相关用户统计**（助教确认 2026-09-03）：该题有提交的用户 `submit_count` 减去其在该题的提交数、`resolve_count` 若 AC 过该题则减 1（按剩余数据口径）。
 
 ### Step 2 评测控制（5 分）
 - 评测流程：取题目 → 取用户代码与语言 → 编译（如需要，C++ 先编译再运行）→ 逐个测例运行、限时/限内存（超限立即 kill → TLE/MLE）→ 比对输出（忽略行末空格与最后多余换行；程序不得输出多余提示语）→ 结构化结果（compile_info/run_info/error_info）。
 - 支持 Python + C++（多语言机制可扩展，动态注册如 go）；评测接口返回最终结果（详细测例在 Step5 日志接口）。
-- `POST /api/submissions/`：登录；参数 problem_id/language/code；异常含 400/401/403/**429**（1min 内 >3 次）/404（题目或语言不存在）；返回 `{submission_id, status:"pending"}`。
+- `POST /api/submissions/`：登录；参数 problem_id/language/code；异常含 400/401/403/**429**（1min 内 >3 次，**单人单题**，助教确认 2026-09-03）/404（题目或语言不存在）；返回 `{submission_id, status:"pending"}`。
 - `POST /api/languages/`：登录注册语言；`GET /api/languages/`：返回 `{"name":["python","cpp"]}`。
 
 ### Step 3 评测管理（5 分）
@@ -122,7 +121,7 @@
 ### Step 5 评测日志（5 分）
 - `GET /api/submissions/{submission_id}/log`：仅本人（未公开时）或管理员；管理员可见 `details`（每测例 `{id,result,time,memory}`）；仅当题目 `public_cases=True` 时其他用户可见 details。响应 `{details, score, counts}`。⚠ Step5 页面补充语义：日志对所有人公开 ≠ 公开 Step2/3 的简单结果——无权限用户即便能看该评测的日志 details，仍访问不了该 submission 的 Step2/3 详情接口。
 - `PUT /api/problems/{problem_id}/log_visibility`：仅管理员；参数 `public_cases`(bool，默认 False)。
-- `GET /api/logs/access/`：仅管理员；审计日志查询，action 统一为 `"view_logs"`（⚠ **助教澄清 2026-09-02**：同学就正文 `view_logs` 与响应示例 `view_log` 二选一提问，助教答复"logs"即指正文写法 **`view_logs`**；全站以此为准，api.md 示例中的 `view_log` 属不一致示例，勿照抄）；返回含 `status`（记录本次访问是否被拒，如 `"403"`）。筛选 user_id/problem_id/page/page_size（分页语义同 submissions）。**不记录**：未登录 / submission 不存在 / 参数错误时。
+- `GET /api/logs/access/`：仅管理员；审计日志查询，action 统一为 `"view_logs"`（⚠ **助教澄清 2026-09-02**：同学就正文 `view_logs` 与响应示例 `view_log` 二选一提问，助教答复"logs"即指正文写法 **`view_logs`**；全站以此为准，api.md 示例中的 `view_log` 属不一致示例，勿照抄）；返回含 `status`（记录本次访问是否被拒，如 `"403"`）。筛选 user_id/problem_id/page/page_size；⚠ **筛选口径（助教确认 2026-09-03）：`user_id`/`problem_id` 至少提供其一，两项全空返回 400**；任一项提供后其余语义（分页等）同 submissions 列表。**不记录**：未登录 / submission 不存在 / 参数错误时。
 
 ### Step 6 前端交互（5 分）
 - **Streamlit**（Python，不要求 JS/HTML/CSS），`streamlit run app.py` 启动；通过 REST API 与后端交互；**不新增独立业务接口**；禁止绕过 API 直读后端数据、禁止硬编码用户身份；登录态靠 Session/Cookie 传递；按 HTTP 状态码与 `code/msg` 展示结果；权限与可见性以后端为准（不能仅靠前端隐藏按钮）。
@@ -191,6 +190,9 @@
 9. **difficulty_score 隐藏字段**（用户指示 2026-09-03）：仅存储于服务端题目文件，**不参与任何对外 API 传回**（CRUD 不收发），AI 模块本地读取使用。
 10. **AI 外部模型**（同指示）：AI 模块须**真实调用外部大模型**并提供**计费与 Token 用量统计**；候选提供商 **OpenRouter**（OpenAI 兼容 `/api/v1`）；无 key 阶段 mock 先行。
 11. **reset 与语言**（同指示）：reset 将动态注册语言重置回内置 python/cpp；**用户注册新语言接口 `POST /api/languages/` 始终保留**。
+12. **429 口径**（助教确认 2026-09-03）：1min 内提交超限按**单人单题**计。
+13. **删除题目统计回退**（同）：级联删除时相关用户 `submit_count`/`resolve_count` **回退**（按该题贡献重算）。
+14. **access 审计筛选**（同）：`user_id`/`problem_id` 至少提供其一，两项全空返回 400；有任一项则其余语义（分页等）同 submissions 列表。
 
 **假设（未获用户否定前按此推进）：**
 4. **环境**：Windows 上开发，WSL2 + Ubuntu 做评测测试（Ubuntu 尚未安装，列入环境搭建首日）。
