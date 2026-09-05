@@ -19,6 +19,37 @@ PASSWORD = "secret123"
 AC_CODE = "a, b = map(int, input().split())\nprint(a + b)"
 
 
+def _drain_judges(timeout: float = 25.0) -> None:
+    """等待后台评测收敛：pending 消失或 pending 集稳定 3s（跳过手工构造的伪 pending）。
+    评审发现 #1（2026-09-05）flaky 修复。"""
+    deadline = time.monotonic() + timeout
+    last_pending = None
+    stable_since = None
+
+    def _pending() -> list[str]:
+        return sorted(
+            r["submission_id"] for _, r in store.iter_all(config.SUBMISSIONS_DIR) if r.get("status") == "pending"
+        )
+
+    while time.monotonic() < deadline:
+        current = _pending()
+        if not current:
+            time.sleep(0.1)
+            if not _pending():
+                return
+            continue
+        if current == last_pending:
+            if stable_since is None:
+                stable_since = time.monotonic()
+            elif time.monotonic() - stable_since > 3.0:
+                return
+        else:
+            stable_since = None
+        last_pending = current
+        time.sleep(0.1)
+    raise AssertionError("background judge tasks did not converge")
+
+
 @pytest.fixture()
 def client():
     with TestClient(app) as c:
@@ -28,6 +59,7 @@ def client():
         for u in ("alice", "bob", "coder"):
             assert c.post("/api/users/", json={"username": u, "password": PASSWORD}).status_code == 200
         yield c
+        _drain_judges()
 
 
 def _login(username):

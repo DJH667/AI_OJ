@@ -19,6 +19,37 @@ PASSWORD = "secret123"
 AC_CODE = "a, b = map(int, input().split())\nprint(a + b)"
 
 
+def _drain_judges(timeout: float = 25.0) -> None:
+    """等待后台评测收敛：存储中 pending 全部消失，或 pending 集稳定 3s 不再变化
+    （测试里手工构造的伪 pending 记录不会被评测，需跳过等待）。评审发现 #1（2026-09-05）。"""
+    deadline = time.monotonic() + timeout
+    last_pending = None
+    stable_since = None
+
+    def _pending() -> list[str]:
+        return sorted(
+            r["submission_id"] for _, r in store.iter_all(config.SUBMISSIONS_DIR) if r.get("status") == "pending"
+        )
+
+    while time.monotonic() < deadline:
+        current = _pending()
+        if not current:
+            time.sleep(0.1)
+            if not _pending():
+                return
+            continue
+        if current == last_pending:
+            if stable_since is None:
+                stable_since = time.monotonic()
+            elif time.monotonic() - stable_since > 3.0:
+                return  # 稳定无变化（伪 pending 或已无后台任务在推进）
+        else:
+            stable_since = None
+        last_pending = current
+        time.sleep(0.1)
+    raise AssertionError("background judge tasks did not converge")
+
+
 @pytest.fixture()
 def client():
     with TestClient(app) as c:
@@ -28,6 +59,7 @@ def client():
         assert c.post("/api/users/", json={"username": "coder", "password": PASSWORD}).status_code == 200
         assert c.post("/api/auth/login", json={"username": "coder", "password": PASSWORD}).status_code == 200
         yield c
+        _drain_judges()
 
 
 DEFAULT_TESTCASES = [
