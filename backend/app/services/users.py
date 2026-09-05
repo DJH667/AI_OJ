@@ -11,6 +11,7 @@ from app.core import messages
 from app.core.exceptions import ApiError
 from app.core.security import hash_password, verify_password
 from app.db import store
+from app.services.pagination import normalize_page
 
 USERNAME_MIN = 3
 USERNAME_MAX = 40
@@ -94,7 +95,7 @@ def authenticate(username: str, password: str) -> dict:
 
 def list_users(page: int | None, page_size: int | None) -> tuple[int, list[dict]]:
     """用户列表（分页语义与 submissions 一致），返回 (total, 当前页用户)。"""
-    page, page_size = _normalize_pagination(page, page_size)
+    page, page_size = normalize_page(page, page_size)
     all_users = [u for _, u in store.iter_all(config.USERS_DIR)]
     all_users.sort(key=lambda u: int(u["user_id"]) if u["user_id"].isdigit() else 0)
     total = len(all_users)
@@ -129,20 +130,3 @@ def _log_role_change(operator: dict, target: dict, old_role: str, new_role: str)
         "new_role": new_role,
         "time": datetime.now().isoformat(timespec="seconds"),
     })
-
-
-def _normalize_pagination(page: int | None, page_size: int | None) -> tuple[int | None, int | None]:
-    """分页语义（api.md，与 GET /api/submissions/ 一致）：
-    - page 有值但 page_size 为空 → 参数错误（400）；
-    - page 空但 page_size 有值 → 取第 1 页；
-    - 两者皆空 → 全部数据（返回 page=None, page_size=None）。
-    """
-    if page is not None and page_size is None:
-        raise ApiError(400, messages.PAGE_SIZE_REQUIRED)
-    if page is not None and page < 1:
-        raise ApiError(400, messages.INVALID_PAGINATION)
-    if page_size is not None and page_size < 1:
-        raise ApiError(400, messages.INVALID_PAGINATION)
-    if page is None and page_size is not None:
-        page = 1
-    return page, page_size

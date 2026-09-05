@@ -73,6 +73,62 @@ def count_recent_submissions(user_id: str, problem_id: str) -> int:
     return count
 
 
+def list_records(
+    user_id: str | None,
+    problem_id: str | None,
+    status: str | None,
+    page: int | None,
+    page_size: int | None,
+) -> tuple[int, list[dict]]:
+    """评测列表（api.md §10 / 需求 §5 Step3）。
+
+    调用方（API 层）已完成权限归一与"一级条件至少其一"检查；
+    此处负责 status 过滤、按提交时间倒序（最新在前）、分页（语义同 submissions 列表）。
+    列表摘要：pending/error 条目只含 submission_id+status；其余含 submission_id/status/score/counts。
+    """
+    from app.services.pagination import normalize_page
+
+    page, page_size = normalize_page(page, page_size)
+    records = [rec for _, rec in store.iter_all(config.SUBMISSIONS_DIR)]
+    if user_id is not None:
+        records = [r for r in records if r.get("user_id") == user_id]
+    if problem_id is not None:
+        records = [r for r in records if r.get("problem_id") == problem_id]
+    if status is not None:
+        records = [r for r in records if r.get("status") == status]
+    records.sort(key=lambda r: int(r["submission_id"]) if r["submission_id"].isdigit() else 0, reverse=True)
+    total = len(records)
+    if page_size is None:
+        return total, [summary(r) for r in records]
+    start = (page - 1) * page_size
+    return total, [summary(r) for r in records[start:start + page_size]]
+
+
+def summary(record: dict) -> dict:
+    """列表条目（api.md：pending/error 只需 submission_id+status；其余含 score/counts）。"""
+    if record.get("status") in ("pending", "error"):
+        return {"submission_id": record["submission_id"], "status": record["status"]}
+    return {
+        "submission_id": record["submission_id"],
+        "status": record["status"],
+        "score": record.get("score", 0),
+        "counts": record.get("counts", 0),
+    }
+
+
+def reset_for_rejudge(submission_id: str) -> dict:
+    """rejudge：覆盖原记录为 pending（复用评测流程重新判定）。"""
+    record = get(submission_id)
+    if record is None:
+        from app.core.exceptions import ApiError
+        from app.core.messages import SUBMISSION_NOT_FOUND
+
+        raise ApiError(404, SUBMISSION_NOT_FOUND)
+    record.update(status="pending", score=0, counts=0, compile_info=None, run_info=None, error_info="", details=[])
+    save(record)
+    return record
+
+
 def is_ac(record: dict) -> bool:
     """AC 口径：评测完成（success）且全部测例通过（score == counts > 0）。"""
     return record.get("status") == "success" and record.get("counts", 0) > 0 and record.get("score") == record.get("counts")

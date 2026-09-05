@@ -22,6 +22,7 @@ INVALID_ROLE = "invalid role"
 # 分页
 PAGE_SIZE_REQUIRED = "page_size is required when page is provided"
 INVALID_PAGINATION = "invalid pagination parameters"
+FILTER_REQUIRED = "at least one of user_id/problem_id is required"
 
 # 题目
 PROBLEM_NOT_FOUND = "problem not found"
@@ -37,3 +38,4 @@ LANGUAGE_ALREADY_EXISTS = "language already exists"
 RATE_LIMITED = "submission rate limit exceeded, at most 3 per minute per problem"
 INVALID_LANGUAGE = "unsupported language"
 JUDGE_FAILED = "judge task failed"
+SUBMISSION_NOT_FOUND = "submission not found"

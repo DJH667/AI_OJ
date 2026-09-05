@@ -14,8 +14,11 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
+
+import psutil
 
 from app import config
 from app.core import messages
@@ -62,8 +65,32 @@ def _compile(language: dict, workdir: Path, src_ref: str, exe_ref: str) -> tuple
     return {"result": "success", "message": ""}, True
 
 
-def _run_case(cmd: list[str], input_text: str, timeout: float, workdir: Path) -> dict:
-    """运行单个测例，返回 {result:None|AC|WA|TLE|RE|UNK, output, time, memory}。"""
+def _monitor_memory(proc: subprocess.Popen, mem_limit_mb: float, holder: dict) -> None:
+    """FAQ 参考：psutil 轮询用户进程 RSS，超限即 kill（→MLE），并记录峰值内存（MB）。"""
+    try:
+        p = psutil.Process(proc.pid)
+    except psutil.Error:
+        return
+    peak = 0.0
+    while proc.poll() is None:
+        try:
+            rss_mb = p.memory_info().rss / (1024 ** 2)
+        except (psutil.Error, ProcessLookupError):
+            break
+        peak = max(peak, rss_mb)
+        if peak > mem_limit_mb:
+            proc.kill()
+            holder["mle"] = True
+            break
+        time.sleep(0.02)
+    holder["peak"] = round(peak, 1)
+
+
+def _run_case(cmd: list[str], input_text: str, timeout: float, workdir: Path, mem_limit_mb: float) -> dict:
+    """运行单个测例；含超时 kill（TLE）与 psutil 内存监控（MLE），返回峰值内存。
+
+    返回 {result:None|AC|WA|TLE|MLE|RE|UNK, output, time, memory}。
+    """
     started = time.perf_counter()
     try:
         proc = subprocess.Popen(
@@ -72,6 +99,9 @@ def _run_case(cmd: list[str], input_text: str, timeout: float, workdir: Path) ->
         )
     except OSError:
         return {"result": "UNK", "output": "", "time": 0.0, "memory": 0}
+    holder = {"mle": False, "peak": 0.0}
+    monitor = threading.Thread(target=_monitor_memory, args=(proc, mem_limit_mb, holder), daemon=True)
+    monitor.start()
     try:
         out, _err = proc.communicate(input=input_text, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -80,11 +110,15 @@ def _run_case(cmd: list[str], input_text: str, timeout: float, workdir: Path) ->
             proc.communicate(timeout=1)
         except Exception:
             pass
-        return {"result": "TLE", "output": "", "time": round(timeout, 3), "memory": 0}
+        monitor.join(timeout=2)
+        return {"result": "TLE", "output": "", "time": round(timeout, 3), "memory": holder["peak"]}
+    monitor.join(timeout=2)
     elapsed = round(time.perf_counter() - started, 3)
+    if holder["mle"]:
+        return {"result": "MLE", "output": "", "time": elapsed, "memory": holder["peak"]}
     if proc.returncode != 0:
-        return {"result": "RE", "output": "", "time": elapsed, "memory": 0}
-    return {"result": None, "output": out, "time": elapsed, "memory": 0}
+        return {"result": "RE", "output": "", "time": elapsed, "memory": holder["peak"]}
+    return {"result": None, "output": out, "time": elapsed, "memory": holder["peak"]}
 
 
 def judge_submission(submission_id: str) -> None:
@@ -106,6 +140,7 @@ def judge_submission(submission_id: str) -> None:
             raise _JudgeError("language not found")
         testcases = problem.get("testcases", []) or []
         timeout = float(problem.get("time_limit") or language.get("time_limit") or 3.0)
+        mem_limit_mb = float(problem.get("memory_limit") or language.get("memory_limit") or 128)
 
         workdir = Path(tempfile.mkdtemp(prefix="oj_judge_"))
         ext = language.get("file_ext", ".txt")
@@ -125,7 +160,7 @@ def judge_submission(submission_id: str) -> None:
             cmd = _build_cmd(run_template, src_ref, exe_ref if language.get("compile_cmd") else None)
             for idx, case in enumerate(testcases, start=1):
                 case_input = case.get("input", "")
-                r = _run_case(cmd, case_input, timeout, workdir)
+                r = _run_case(cmd, case_input, timeout, workdir, mem_limit_mb)
                 if r["result"] is None:
                     expected = case.get("output", "")
                     actual = r["output"]
