@@ -77,3 +77,15 @@
 **想确认**：编译错误（CE）的 submission 状态应为 success 还是 error？（影响 Step3 列表中 CE 提交是否可见 score/compile_info）
 
 **答复**：（待填）
+
+---
+
+## 问题 6（新增 2026-09-05）：rejudge 对用户统计的影响
+
+**官方原文**（api.md）：`PUT /api/submissions/{submission_id}/rejudge` 仅说明"重新评测需覆盖原 submission_id 对应的内容"；未提及对 submit_count/resolve_count 的影响。
+
+**当前实现**：rejudge **不新计 submit_count**（不是新提交）；resolve_count 按"一题最多一次"只增不减——重评使该题唯一 AC 提交变失败时**不回溯减 1**（快照语义）。
+
+**想确认**：① rejudge 是否计入 submit_count？② 若某用户对该题唯一 AC 提交被 rejudge 判失败，resolve_count 是否应回退？
+
+**答复**：（待填）

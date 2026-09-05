@@ -108,7 +108,7 @@
 - ⚠ **可见性修订**（api.md 原文语义）：提供 user_id 时——管理员可查任意用户记录，普通用户只能查自己的（越权应拒绝）；未提供 user_id 时（此时必有 problem_id）——管理员=该题所有用户的记录，普通用户=该题自己的记录。
 - ⚠ **列表摘要裁剪**：条目 status 为 `pending`/`error` 时只需返回 `submission_id` 与 `status`；其余返回 `{submission_id,status,score,counts}`。响应 `{total, submissions:[...]}`。
 - `GET /api/submissions/{submission_id}`：仅本人或管理员；含 status/score/counts/compile_info/run_info/error_info；pending 至少 id+status。
-- `PUT /api/submissions/{submission_id}/rejudge`：仅管理员；**覆盖原 submission_id 对应内容**；状态回 pending；404 不存在。
+- `PUT /api/submissions/{submission_id}/rejudge`：仅管理员；**覆盖原 submission_id 对应内容**；状态回 pending；404 不存在。⚠ **统计口径（2026-09-05 落档）**：rejudge 不新计 submit_count，resolve_count 只增不减（重评使唯一 AC 变失败不回溯）——官方未定义，待助教确认（ta-qa-pending Q6）。
 
 ### Step 4 用户管理（5 分）
 - `POST /api/users/` 注册（用户名 3–40、密码 ≥6、唯一性 400、bcrypt）；`POST /api/auth/login`（400 参数 / 401 用户名或密码错误 / **403 用户被禁用**）、`POST /api/auth/logout`（401 未登录）。
