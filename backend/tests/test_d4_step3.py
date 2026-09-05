@@ -238,3 +238,39 @@ def test_rejudge_overwrites_and_reruns_ok(client):
     assert client.put(f"/api/submissions/{sid}/rejudge").status_code == 200
     rec2 = _wait_judged(sid)
     assert rec2["score"] == 50 and len(rec2["details"]) == 5
+
+
+def test_rejudge_updates_stats_realtime(client):
+    """Q6（2026-09-05 用户判定）：rejudge 后实时重算该用户统计——
+    唯一 AC 提交被重评失败 → resolve_count 回退、submit_count 不变。"""
+    testcases = [
+        {"input": "1 2", "output": "3"},
+        {"input": "-5 3", "output": "-2"},
+        {"input": "0 0", "output": "0"},
+        {"input": "10 20", "output": "30"},
+        {"input": "-1 -1", "output": "-2"},
+    ]
+    assert _add_problem(client, "P1", testcases=testcases).status_code == 200
+    coder = _login("coder")
+    sid = _submit(coder, "P1", AC_CODE).json()["data"]["submission_id"]
+    rec = _wait_judged(sid)
+    assert rec["status"] == "success" and rec["score"] == 50
+
+    def _stats():
+        u = store.load_json(config.USERS_DIR, "coder")
+        return u["submit_count"], u["resolve_count"]
+
+    assert _stats() == (1, 1)
+    # 修改题目使原代码不再通过（期望输出改为 999）
+    body = {
+        "id": "P1", "title": "测试题", "description": "d", "input_description": "i",
+        "output_description": "o", "samples": [{"input": "1 2", "output": "3"}],
+        "constraints": "c", "testcases": [{"input": "1 2", "output": "999"}],
+        "time_limit": 1.0, "memory_limit": 128,
+    }
+    assert client.put("/api/problems/P1", json=body).status_code == 200
+    # rejudge → 覆盖重跑 → WA → resolve 回退
+    assert client.put(f"/api/submissions/{sid}/rejudge").status_code == 200
+    rec2 = _wait_judged(sid)
+    assert rec2["status"] == "success" and rec2["score"] == 0
+    assert _stats() == (1, 0)  # submit 不变、resolve 实时回退

@@ -72,11 +72,11 @@
 
 **官方原文**（api.md）：submission 状态为 pending / success / error；"查询评测结果"示例为 status success + compile_info{result,message}；CE 的归属未明示。Step3 列表裁剪规则："status 为 error/pending 时只需返回 submission_id 与 status"。
 
-**当前实现**：CE → **status=success**（score=0、counts=总测例×10、compile_info.result="compile error"、run_info=null、details=[]——评测流程正常走完并返回结果）；error 仅用于评测框架级问题（题目/语言缺失等）。
+**当前实现**（2026-09-05 用户判定后）：CE → **status=error**——编译失败视为提交未通过评测；`compile_info.result="compile error"` 保留供详情展示、score/counts=0、run_info=null、details=[]（不跑测例）。
 
 **想确认**：编译错误（CE）的 submission 状态应为 success 还是 error？（影响 Step3 列表中 CE 提交是否可见 score/compile_info）
 
-**答复**：（待填）
+**答复**：按一般共识归 **error**（用户判定 2026-09-05，已实现——judge 改 CE 分支 + 相关测试更新）。
 
 ---
 
@@ -84,8 +84,8 @@
 
 **官方原文**（api.md）：`PUT /api/submissions/{submission_id}/rejudge` 仅说明"重新评测需覆盖原 submission_id 对应的内容"；未提及对 submit_count/resolve_count 的影响。
 
-**当前实现**：rejudge **不新计 submit_count**（不是新提交）；resolve_count 按"一题最多一次"只增不减——重评使该题唯一 AC 提交变失败时**不回溯减 1**（快照语义）。
+**当前实现**（2026-09-05 用户判定后）：评测完成（含 rejudge）后**实时重算**该用户统计——`submit_count`=该用户现存提交记录数（按提交算，pending/error/CE 均计入，不因 rejudge 额外 +1）；`resolve_count`=AC 过的题目去重数（一题最多一次）。重评使唯一 AC 变失败 → resolve 实时回退（幂等重算，无读改写竞态，judge 串行锁内执行）。
 
 **想确认**：① rejudge 是否计入 submit_count？② 若某用户对该题唯一 AC 提交被 rejudge 判失败，resolve_count 是否应回退？
 
-**答复**：（待填）
+**答复**：实时变化——rejudge 后更新该 submission 所属用户的统计数据（用户判定 2026-09-05，已实现：`recompute_stats` + 新增 rejudge 实时回退测试）。

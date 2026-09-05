@@ -134,29 +134,36 @@ def is_ac(record: dict) -> bool:
     return record.get("status") == "success" and record.get("counts", 0) > 0 and record.get("score") == record.get("counts")
 
 
+def recompute_stats(username: str) -> None:
+    """实时重算该用户统计（Q6 判定 2026-09-05）：
+
+    - submit_count = 该用户现存提交记录数（按提交算，pending/error/CE 均计入）；
+    - resolve_count = 该用户 AC 过的题目去重数（一题最多一次，is_ac 判定）。
+    幂等且无读-改-写竞态：调用方处于评测串行锁内或删除路径内，最终一次写为准确值。
+    """
+    user = user_service.get_by_username(username)
+    if user is None:
+        return
+    submits = 0
+    resolved = set()
+    for _, rec in store.iter_all(config.SUBMISSIONS_DIR):
+        if rec.get("username") != username:
+            continue
+        submits += 1
+        if is_ac(rec):
+            resolved.add(rec.get("problem_id"))
+    user["submit_count"] = submits
+    user["resolve_count"] = len(resolved)
+    user_service.save_user(user)
+
+
 def delete_all_for_problem(problem_id: str) -> None:
-    """删除某题全部提交并回退相关用户统计（助教确认 2026-09-03）。"""
-    affected: dict[str, dict] = {}  # username -> {"submits": n, "ac": bool}
-
-    def _account(username: str) -> dict:
-        if username not in affected:
-            affected[username] = {"submits": 0, "ac": False}
-        return affected[username]
-
+    """删除某题全部提交，并对受影响用户实时重算统计（助教确认 2026-09-03 回退口径）。"""
+    affected: set[str] = set()
     for key, rec in list(store.iter_all(config.SUBMISSIONS_DIR)):
         if rec.get("problem_id") != problem_id:
             continue
-        acc = _account(rec.get("username", ""))
-        acc["submits"] += 1
-        if is_ac(rec):
-            acc["ac"] = True
+        affected.add(rec.get("username", ""))
         store.delete_json(config.SUBMISSIONS_DIR, key)
-
-    for username, acc in affected.items():
-        user = user_service.get_by_username(username)
-        if user is None:
-            continue
-        user["submit_count"] = max(0, user.get("submit_count", 0) - acc["submits"])
-        if acc["ac"]:
-            user["resolve_count"] = max(0, user.get("resolve_count", 0) - 1)
-        user_service.save_user(user)
+    for username in affected:
+        recompute_stats(username)

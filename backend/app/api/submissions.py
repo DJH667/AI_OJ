@@ -14,7 +14,7 @@ from app.api.deps import get_current_user, require_admin
 from app.core import messages
 from app.core.exceptions import ApiError
 from app.core.response import success
-from app.services import judge, languages, problems, submissions, users
+from app.services import judge, languages, problems, submissions
 
 router = APIRouter()
 
@@ -57,11 +57,8 @@ async def create_submission(body: SubmissionBody, current: dict = Depends(get_cu
     record = submissions.new_pending(current, body.problem_id, body.language, body.code)
     submissions.save(record)
 
-    # 用户提交计数（按提交算，一题可多次）；event loop 单线程串行，无并发窗口
-    user = users.get_by_username(current["username"])
-    user["submit_count"] = user.get("submit_count", 0) + 1
-    users.save_user(user)
-
+    # 用户统计（submit_count/resolve_count）由评测完成后的 recompute_stats 实时维护（Q6），
+    # 此处不做增量，避免与评测线程读-改-写竞态。
     asyncio.create_task(_judge_serial(record["submission_id"]))
 
     return success(msg="success", data={"submission_id": record["submission_id"], "status": "pending"})

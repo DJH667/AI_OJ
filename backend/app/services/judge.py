@@ -2,10 +2,10 @@
 
 流程：读提交 → 取题目/语言 → 编译（如需要，C++ 先编译再运行）→ 逐测例运行 →
 输出比对（忽略行末空格与最后多余换行）→ 结构化结果。
-- 测试点结果：AC/WA/TLE/MLE(占位)/RE/CE/UNK；submission 状态：pending/success/error；
-- CE 时 submission 状态记为 success（评测流程正常完成，结果见 compile_info；2026-09-04 决策，
-  见 d3-implementation-notes §6 与 ta-qa-pending Q5）；
-- 计分：score=通过测例数×10，counts=测例总数×10；
+- 测试点结果：AC/WA/TLE/MLE/RE/CE/UNK；submission 状态：pending/success/error；
+- CE → status=error（用户判定 2026-09-05，遵循一般共识；compile_info 保留供详情展示，
+  score/counts=0，不跑测例）；error 也用于评测框架级问题（题目/语言缺失等）；
+- 计分：score=通过测例数×10，counts=测例总数×10（CE/框架错误为 0）；
 - 评测以同步阻塞形式在线程池执行（API 层以全局锁串行调度，见 api/submissions.py）；
 - error_info / compile_info.message 不泄露服务器路径/临时目录：编译与运行均在
   cwd=临时目录 内、命令使用相对路径（./main.ext），g++ 报错不再带 /tmp/oj_judge_* 前缀。
@@ -20,10 +20,8 @@ from pathlib import Path
 
 import psutil
 
-from app import config
 from app.core import messages
-from app.db import store
-from app.services import languages, problems, submissions, users
+from app.services import languages, problems, submissions
 
 COMPILE_TIMEOUT = 30.0  # 编译超时（秒）
 
@@ -169,13 +167,18 @@ def judge_submission(submission_id: str) -> None:
                         ac_count += 1
                 details.append({"id": idx, "result": r["result"], "time": r["time"], "memory": r["memory"]})
             record["run_info"] = {"result": "finished", "message": f"{len(testcases)} test cases finished"}
+            final_status = "success"
+            final_counts = len(testcases) * 10
         else:
-            # CE：编译失败，不再运行（submission 状态仍为 success，见模块 docstring）
+            # CE：编译失败 → submission 状态为 error（用户判定 2026-09-05，一般共识），
+            # 不再运行测例；compile_info 保留供详情展示；score/counts 记 0（无评测结果）。
             record["run_info"] = None
+            final_status = "error"
+            final_counts = 0
         record.update(
-            status="success",
+            status=final_status,
             score=ac_count * 10,
-            counts=len(testcases) * 10,
+            counts=final_counts,
             details=details,
             error_info="",
         )
@@ -188,33 +191,6 @@ def judge_submission(submission_id: str) -> None:
             shutil.rmtree(workdir, ignore_errors=True)
 
     submissions.save(record)
-    _update_resolve_on_ac(record)
-
-
-def _update_resolve_on_ac(record: dict) -> None:
-    """该用户该题首次 AC（全部测例通过）时 resolve_count +1（一题最多一次）。
-
-    依赖外层评测串行锁：同用户同题两个提交不会并发完成。
-    """
-    if not submissions.is_ac(record):
-        return
-    user_id = record["user_id"]
-    problem_id = record["problem_id"]
-    submission_id = record["submission_id"]
-    already = False
-    for _, other in store.iter_all(config.SUBMISSIONS_DIR):
-        if (
-            other.get("submission_id") != submission_id
-            and other.get("user_id") == user_id
-            and other.get("problem_id") == problem_id
-            and submissions.is_ac(other)
-        ):
-            already = True
-            break
-    if already:
-        return
-    user = users.get_by_username(record["username"])
-    if user is None:
-        return
-    user["resolve_count"] = user.get("resolve_count", 0) + 1
-    users.save_user(user)
+    # Q6（2026-09-05 用户判定）：评测完成（含 rejudge）后实时重算该用户统计
+    # （submit=现存提交数、resolve=AC 题目去重数），幂等、无读改写竞态。
+    submissions.recompute_stats(record.get("username", ""))

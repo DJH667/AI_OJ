@@ -60,7 +60,7 @@
 - ⚠ **资源限制生效链**（Step2 页面 + api.md 综合）：题目显式给出 time/memory_limit → 使用之；否则回退到**该语言注册时的默认值**（语言注册字段可选 time_limit/memory_limit）；再缺省按 api.md 题目字段标注 3s/128MB 兜底。实现内置语言默认值时应与上述对齐。
 
 ### 4.2 评测状态（submission 级）与测试点结果（case 级）
-- submission 状态：`pending` / `success` / `error`。
+- submission 状态：`pending` / `success` / `error`。⚠ **CE（编译错误）的 submission 状态 = error**（用户判定 2026-09-05，一般共识；compile_info 保留供详情展示、score/counts=0、不跑测例）；error 亦用于评测框架级问题（题目/语言缺失等）。
 - 测试点结果：`AC` / `WA` / `TLE` / `MLE` / `RE` / `CE` / `UNK`；**非 AC~CE 状态一律归 UNK**（Step2 页面）。
 - 计分（Step2 页面）：**一个测试点 10 分**；score=通过测例数×10，counts=测例总数×10。
 - submission 详情示例字段：`submission_id, user_id, problem_id, language, code, status, score, counts, compile_info{result,message}, run_info{result,message}, error_info, details[{id,result,time,memory}]`。`pending/error` 至少返回 `submission_id` 与 `status`，未产生字段可返回 null。
@@ -108,7 +108,7 @@
 - ⚠ **可见性修订**（api.md 原文语义）：提供 user_id 时——管理员可查任意用户记录，普通用户只能查自己的（越权应拒绝）；未提供 user_id 时（此时必有 problem_id）——管理员=该题所有用户的记录，普通用户=该题自己的记录。
 - ⚠ **列表摘要裁剪**：条目 status 为 `pending`/`error` 时只需返回 `submission_id` 与 `status`；其余返回 `{submission_id,status,score,counts}`。响应 `{total, submissions:[...]}`。
 - `GET /api/submissions/{submission_id}`：仅本人或管理员；含 status/score/counts/compile_info/run_info/error_info；pending 至少 id+status。
-- `PUT /api/submissions/{submission_id}/rejudge`：仅管理员；**覆盖原 submission_id 对应内容**；状态回 pending；404 不存在。⚠ **统计口径（2026-09-05 落档）**：rejudge 不新计 submit_count，resolve_count 只增不减（重评使唯一 AC 变失败不回溯）——官方未定义，待助教确认（ta-qa-pending Q6）。
+- `PUT /api/submissions/{submission_id}/rejudge`：仅管理员；**覆盖原 submission_id 对应内容**；状态回 pending；404 不存在。⚠ **统计口径（2026-09-05 用户判定）**：评测完成/重评后**实时重算**该用户统计——submit_count=现存提交数（rejudge 不额外 +1）、resolve_count=AC 题目去重数（重评使唯一 AC 变失败则回退，见 ta-qa-pending Q6）。
 
 ### Step 4 用户管理（5 分）
 - `POST /api/users/` 注册（用户名 3–40、密码 ≥6、唯一性 400、bcrypt）；`POST /api/auth/login`（400 参数 / 401 用户名或密码错误 / **403 用户被禁用**）、`POST /api/auth/logout`（401 未登录）。

@@ -83,7 +83,7 @@ wsl ~/oj-venv/bin/python -m pytest tests -q    # 40 passed（D1 5 + D2 15 + D3 p
 | P1 并发竞态（resolve/submit 读改写非原子） | ✅ `api/submissions.py` 加全局 `asyncio.Lock`（`_judge_serial`），评测任务排队串行 |
 | P2 `GET /api/languages/` 顺序 | ✅ `all_names` 按内置顺序返回 `["python","cpp"]`（与 api.md 示例一致） |
 | P2 `GET /api/languages/` 未鉴权 | ✅ 补 `Depends(get_current_user)`（权限回填：未登录不得查改任何资源） |
-| P2 CE 的 submission 状态归属 | 决策：CE → status=success（流程正常完成，结果见 compile_info）；列入 ta-qa-pending Q5 待向助教核实 |
+| P2 CE 的 submission 状态归属 | ✅ CE → status=error（用户判定 2026-09-05：编译失败即未通过评测；compile_info 保留、score/counts=0，judge 与测试已更新） |
 | P3 `_normalize` 死代码 | ✅ 修复（`while lines and lines[-1] == ""`） |
 | P3 编译绝对路径泄露 /tmp | ✅ 编译与运行 `cwd=临时目录` + 相对路径 `./main.ext`，g++ 报错不再带临时目录前缀 |
 | P3 `to_public` 缺必填键 500 / `validate_raw` 死代码 | ✅ `to_public` 全 `get` 兜底；`validate_raw` 删除 |

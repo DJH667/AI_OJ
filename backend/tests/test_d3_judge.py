@@ -170,7 +170,8 @@ def test_compile_error_cpp(client):
     assert _add_problem(client, "P1").status_code == 200
     r = _submit(client, "P1", "cpp", "int main() { return")  # 语法错误
     rec = _wait_judged(r.json()["data"]["submission_id"])
-    assert rec["status"] == "success"
+    # CE → submission 状态 error（用户判定 2026-09-05；compile_info 保留供详情）
+    assert rec["status"] == "error"
     assert rec["compile_info"]["result"] == "compile error"
     assert rec["score"] == 0
     assert rec["details"] == []
