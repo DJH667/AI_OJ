@@ -119,8 +119,12 @@
 - **权限回填**（Step4 页面"权限提示"，关键！）：Step4 之后——题目上传/语言创建=任意登录用户；删除题目=仅管理员；暂不支持删除语言；**未登录用户不得对任何资源增删查改**（Step1–3 接口需补 401/403 校验）。
 
 ### Step 5 评测日志（5 分）
-- `GET /api/submissions/{submission_id}/log`：仅本人（未公开时）或管理员；管理员可见 `details`（每测例 `{id,result,time,memory}`）；仅当题目 `public_cases=True` 时其他用户可见 details。响应 `{details, score, counts}`。⚠ Step5 页面补充语义：日志对所有人公开 ≠ 公开 Step2/3 的简单结果——无权限用户即便能看该评测的日志 details，仍访问不了该 submission 的 Step2/3 详情接口。
-- `PUT /api/problems/{problem_id}/log_visibility`：仅管理员；参数 `public_cases`(bool，默认 False)。
+- `GET /api/submissions/{submission_id}/log`：响应 `{details, score, counts}`。⚠ **可见性精确语义（助教群答 2026-09-05，覆盖此前 api.md 简略表述）**：
+  - `public_cases=False`（默认）：**提交者本人**可访问自己的日志，但**看不到 `details`（每测例 AC/WA、耗时、内存）**——只能看到 `score` 与 `counts`（此时响应 `details` 为空数组）；**其他已登录普通用户访问 → 403**；
+  - `public_cases=True`：**提交者本人与所有已登录普通用户**均可查看完整 `details`（每测例 `{id,result,time,memory}`）及 `score`/`counts`；
+  - **管理员不受 `public_cases` 影响，始终可见完整日志**；
+  - 日志公开**不等于**开放用户代码/编译信息等 Step2/3 提交详情——无权限用户仍访问不了该 submission 的 Step2/3 详情接口（灰色语义保留）。
+- `PUT /api/problems/{problem_id}/log_visibility`：仅管理员；参数 `public_cases`(bool，默认 False，存题目文件、不进题目对外字段)。
 - `GET /api/logs/access/`：仅管理员；审计日志查询，action 统一为 `"view_logs"`（⚠ **助教澄清 2026-09-02**：同学就正文 `view_logs` 与响应示例 `view_log` 二选一提问，助教答复"logs"即指正文写法 **`view_logs`**；全站以此为准，api.md 示例中的 `view_log` 属不一致示例，勿照抄）；返回含 `status`（记录本次访问是否被拒，如 `"403"`）。筛选 user_id/problem_id/page/page_size；⚠ **筛选口径（助教确认 2026-09-03）：`user_id`/`problem_id` 至少提供其一，两项全空返回 400**；任一项提供后其余语义（分页等）同 submissions 列表。**不记录**：未登录 / submission 不存在 / 参数错误时。
 
 ### Step 6 前端交互（5 分）

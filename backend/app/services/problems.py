@@ -83,10 +83,29 @@ def create(problem: ProblemIn) -> dict:
 def update(problem_id: str, problem: ProblemIn) -> dict:
     if problem.id != problem_id:
         raise ApiError(400, PROBLEM_ID_MISMATCH)
-    if get(problem_id) is None:
+    existing = get(problem_id)
+    if existing is None:
         raise ApiError(404, PROBLEM_NOT_FOUND)
-    save(problem_id, _to_storage(problem))
+    data = _to_storage(problem)
+    # 保留服务端私有键（public_cases 日志开关、difficulty_score AI 参考分）——CRUD 覆盖不应丢失
+    for private in ("public_cases", "difficulty_score"):
+        if private in existing:
+            data[private] = existing[private]
+    save(problem_id, data)
     return {"id": problem_id}
+
+
+def get_public_cases(problem_id: str) -> bool:
+    data = get(problem_id)
+    return bool(data.get("public_cases", False)) if data else False
+
+
+def set_public_cases(problem_id: str, value: bool) -> None:
+    data = get(problem_id)
+    if data is None:
+        raise ApiError(404, PROBLEM_NOT_FOUND)
+    data["public_cases"] = bool(value)
+    save(problem_id, data)
 
 
 def to_public(data: dict) -> dict:

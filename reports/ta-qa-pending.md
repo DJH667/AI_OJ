@@ -89,3 +89,17 @@
 **想确认**：① rejudge 是否计入 submit_count？② 若某用户对该题唯一 AC 提交被 rejudge 判失败，resolve_count 是否应回退？
 
 **答复**：实时变化——rejudge 后更新该 submission 所属用户的统计数据（用户判定 2026-09-05，已实现：`recompute_stats` + 新增 rejudge 实时回退测试）。
+
+---
+
+## 问题 7（新增 2026-09-05，✅ 已答复）：评测日志可见性（public_cases 两态）的细粒度
+
+**官方原文**（api.md Step5）：`GET /api/submissions/{submission_id}/log` 权限"仅本人（如果没有公开）或管理员"；"仅当该评测对应问题 public_cases 设置为 True 时用户可见 details"——未区分"本人是否可见 details"与"其他用户是否 403"。
+
+**想确认**：① 未公开时本人能否看 details（AC/WA、耗时、内存）？② 未公开/公开两种设置下，其他已登录普通用户分别可见什么？③ 管理员是否始终可见？
+
+**答复**（助教群答 2026-09-05）：
+- `public_cases=False`：提交者本人可访问自己的日志，但**不能查看测试点明细 details**（看不到 AC/WA、耗时、内存），只能看到总得分 score 和总分 counts；**其他已登录普通用户访问返回 403**。
+- `public_cases=True`：提交者本人**和其他已登录普通用户**都可查看 details（每测例状态、耗时、内存）以及 score/counts。
+- 管理员不受 public_cases 影响，始终可查看完整日志；**日志公开不会同时开放用户代码、编译信息等 Step2/3 提交详情**。
+- 已按此实现（D5，见需求文档 §5 Step5 与 d5 实现说明）。
