@@ -23,14 +23,14 @@
 | 日期 | 内容 | 等效原计划 |
 |---|---|---|
 | 9.5（六）晚 | **D4** ✅（commit 1524d10）：Step2 收尾（psutil → MLE/真实 memory）+ Step3（列表/详情/rejudge） | = 原 D4 |
-| 9.6（日） | **D5**：Step5（日志/可见性/access 审计）+ **AI 对齐 1h**；⚠ 开工前向助教确认 **Q5（CE 状态归属）** 答复 | = 原 D5 + AI 对齐 |
+| 9.6（日） | **D5** ✅（commit 3c6bae0）：Step5（日志/可见性/access 审计）+ **AI 对齐提前完成**（9.5 问答，见 ai-alignment-notes） | = 原 D5 + AI 对齐 |
 | 9.7（一） | **D6a**：Step6 前端三组页面主体 | = 原 D6 + 原 D7（前端合并） |
-| 9.8（二） | **D7a**：Step6 联调收尾 + **全量回归 + 边界用例** + Q5 答复回填 + 报告素材收集 | = 原 D8 预备 + 评审闭环 |
-| 9.9（三） | **AI 冲刺**（R1–R4 + 质量打磨）+ 实验报告成稿 | = AI + 报告 |
+| 9.8（二） | **D7a**：Step6 联调收尾 + **全量回归** + 报告素材；**AI 后端窗口（Phase2，可晚段）** | = 原 D8 预备 + 评审闭环 |
+| 9.9（三） | **AI 冲刺**（后端收尾 + 前端 + 对拍联调，Phase3–4）+ 实验报告成稿 | = AI + 报告 |
 | 9.10（四） | 上午：演练 2 轮 + 最终 commit；晚上：报告 PDF（23:59 截止） | 验收日 |
 
-> 缓冲与取舍：若 9.7 前端或 9.8 回归出现超时，**AI 自动收缩为 R1–R4 最小闭环（保底 ~4–5 分），基础与报告绝不挤占**；
-> 9.6 的 AI 对齐若未完成，顺延至 9.7 晚/9.8 晚各 30 分钟碎片完成（对齐议题见 reports/ai-alignment-notes.md，8 项，不阻塞开发框架）。
+> 缓冲与取舍：若 9.7 前端或 9.8 回归出现超时，**AI 自动收缩为 R1–R4 + 硬核单轮对拍（保底 ~4–5 分），基础与报告绝不挤占**；
+> AI 细节已对齐定案（2026-09-05，reports/ai-alignment-notes.md 8 项 + 追加定案），9.8 晚/9.9 直接按 Phase2–4 实施。
 
 ## 2. 分日详细任务（已完成日见 reports/d1–d3-implementation-notes.md）
 
@@ -40,10 +40,10 @@
 - 交付：Step3 三接口自测全绿；MLE 样例记录（报告素材）。
 - 熟悉重点：筛选/分页边界语义、评测可见性、rejudge 语义。
 
-### D5 9.6（日）— Step5 评测日志（官方 5 分）+ AI 对齐（1h）
-- 评测完成即持久化测例 `details`；`GET /api/submissions/{id}/log`（本人/管理员；题目 `public_cases=True` 公开 details；公开日志 ≠ 公开 Step2/3 结果）；`PUT /api/problems/{id}/log_visibility`；`GET /api/logs/access/` 审计（action=`view_logs`；**user_id/problem_id 至少其一、全空 400**（助教确认）；status 记录拒绝；不记 未登录/不存在/参数错误）。
-- **AI 对齐**：按 ai-alignment-notes 8 项议题逐项定案（界面范围/参考题/OpenRouter/计费口径/任务与中断/产出衔接/演示/裁剪），回填后恢复排期。
-- 交付：Step5 自测全绿（可见性三态）；对齐结论回填。
+### D5 9.6（日）— Step5 评测日志（官方 5 分）✅ + AI 对齐（9.5 已完成）
+- 评测完成即持久化测例 `details`；`GET /api/submissions/{id}/log`（可见性三态按助教 Q7：未公开本人无 details、他人 403、公开后全员 details、管理员恒完整；公开日志 ≠ 公开 Step2/3 结果）；`PUT /api/problems/{id}/log_visibility`；`GET /api/logs/access/` 审计（action=`view_logs`；user_id/problem_id 至少其一、全空 400；status 记录 200/403；不记 未登录/不存在/参数错误）。
+- **AI 对齐**：已于 9.5 问答完成全部定案并回填 `reports/ai-alignment-notes.md`（8 项 + 追加：语言必选/硬核对拍/私有 ai_meta/落库全量 testcases）。
+- 交付：Step5 自测全绿（55/55，可见性三态）；commit 3c6bae0。
 
 ### D6a 9.7（一）— Step6 前端三组页面（官方 5 分）
 - Streamlit `frontend/app.py`：统一 API client（Session cookie、code/msg 展示、401/403/429 提示）；
