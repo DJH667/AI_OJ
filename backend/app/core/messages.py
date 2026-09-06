@@ -39,3 +39,7 @@ RATE_LIMITED = "submission rate limit exceeded, at most 3 per minute per problem
 INVALID_LANGUAGE = "unsupported language"
 JUDGE_FAILED = "judge task failed"
 SUBMISSION_NOT_FOUND = "submission not found"
+
+# AI 智能命题
+AI_TASK_NOT_FOUND = "ai task not found"
+AI_TASK_ENDED = "task already finished"
