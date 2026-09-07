@@ -20,6 +20,25 @@
 
 ---
 
+## 2026-09-07 · 一键启动脚本评审（对应 `comments/2026-09-07-review-start-script-9cba4ba.md`）
+
+结论：脚本可用，无阻断；建议优先处理 #1/#2。
+
+| # | 级别 | 问题 | 建议 | 状态 |
+|---|---|---|---|---|
+| 1 | P2 | `start.cmd` 后端探活 `:wait_loop` 无超时，失败时无限循环 | 加计数器（~30s）超时报错并提示看 backend.log | 待处理 |
+| 2 | P2 | 无 8000/8501 端口占用检测，可能连到旧后端 | 启动前检查端口占用/自动 stop | 待处理 |
+| 3 | P3 | 浏览器在 streamlit 就绪前打开 | 先探活 8501 再开浏览器 | 待处理 |
+| 4 | P3 | README/USER_GUIDE 与 `start /b` 无窗口行为不一致 | 统一为"仅 stop.cmd 停后端" | 待处理 |
+| 5 | P3 | 预检未校验 fastapi/uvicorn/streamlit 依赖 | 加 import 检查 | 待处理 |
+| 6 | P3 | 盘符仅支持 C:–G: | 用 wslpath 或放宽 | 待处理 |
+| 7 | P3 | 后端 0.0.0.0 暴露局域网 | 视需要改 127.0.0.1 | 待处理 |
+| 8 | P3 | stop.cmd pkill 可能误杀同名 uvicorn | 按目录/端口精确匹配 | 待处理 |
+| 9 | P3 | .gitattributes 未声明 *.cmd eol=crlf | 补声明 | 待处理 |
+| 10 | P3 | backend.log 无轮转 | 加截断/轮转 | 待处理 |
+
+---
+
 ## 2026-09-05 · D4 计划评审（对应 `comments/2026-09-05-review-D4-plan-1524d10.md`）
 
 | # | 级别 | 问题 | 建议 | 状态 |
@@ -46,6 +65,25 @@
 | 8 | P3 | next_task_id 无锁 + 死代码 | ✅ 死代码清理（judge `ACCEPTED_VERDICTS`、pipeline 重复 get）；无锁属单进程安全，已注明 |
 
 > 基础部分（Step5/Q5/Q6/flaky）评审确认 ✅；全量 63/63。
+
+---
+
+## 2026-09-07 · 一键启动脚本评审（对应 `comments/2026-09-07-review-start-script-9cba4ba.md`）
+
+| # | 级别 | 问题 | 状态 |
+|---|---|---|---|
+| 1 | P2 | `:wait_loop` 无超时（启动失败会死循环） | ✅ 已修：计数 40 轮后报错并提示查看 backend.log 尾部 |
+| 2 | P2 | 无端口占用检测（8000 残留会连错后端） | ✅ 已修：启动前探活 8000/8501；8000 在线则复用并提示、8501 占用则报错退出 |
+| 3 | P3 | 浏览器过早打开 | ✅ 已修：延迟 4s 打开浏览器（后台 opener），随后前端前台运行 |
+| 4 | P3 | 文档称可"关窗口停后端"，实为后台无窗口 | ✅ 文档统一为 `stop.cmd`（README/USER_GUIDE 更新） |
+| 5 | P3 | 依赖预检不完整 | ✅ 增加 `import fastapi,uvicorn`（WSL venv）与 Windows `.venv\Scripts\streamlit.exe` 存在性检查 |
+| 6 | P3 | 盘符仅 C:–G: | 🟡 保持自动映射 C:–G:（当前 E: 无碍）；错误提示引导手动方式（wslpath 捕获中文在 GBK cmd 不可靠，故不用） |
+| 7 | P3 | `--host 0.0.0.0` 局域网可达 | ✅ 改 `127.0.0.1`（WSL2 localhost 转发已验证可达） |
+| 8 | P3 | `pkill -f uvicorn` 可能误杀 | ✅ stop.cmd 精确匹配 `uvicorn main:app --port 8000`；start-backend.sh 另写 backend.pid 备用 |
+| 9 | P3 | `.gitattributes` 未声明 `*.cmd` | ✅ 已加 `*.cmd text eol=crlf` |
+| 10 | P3 | backend.log 无限增长 | ✅ 每次启动截断（`: >`） |
+
+> 结论：脚本可直接使用；P2 已按"验收前必改"处理，v5 实测通过（后端就绪→前端 8501 启动）。
 
 ---
 
