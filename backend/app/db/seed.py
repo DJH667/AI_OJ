@@ -23,3 +23,20 @@ def ensure_admin() -> None:
         "submit_count": 0,
         "resolve_count": 0,
     })
+
+
+def ensure_demo_problems() -> None:
+    """polish（2026-09-07）：启动时按 id 幂等导入内置示例题（Hello World + A+B）。
+
+    - 仅当 config.SEED_DEMO_PROBLEMS 为真时执行（测试经 OJ_SEED_DEMO=0 关闭）；
+    - 按题目 id 检查，缺失才写入——用户删除后重启后端可恢复初始题库；
+    - reset 会清空题库且不回种（重启后端即恢复）。
+    """
+    if not config.SEED_DEMO_PROBLEMS:
+        return
+    from app.services import problems as problem_service
+
+    for name in config.DEMO_PROBLEM_SAMPLES:
+        data = problem_service.load_sample(name)
+        if problem_service.get(data.get("id")) is None:
+            problem_service.save_internal(data)

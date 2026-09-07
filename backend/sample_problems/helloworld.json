@@ -1,0 +1,20 @@
+{
+  "id": "P1000",
+  "title": "Hello, World!",
+  "description": "编写一个程序，输出字符串 Hello, World!。",
+  "input_description": "无输入（程序不应要求输入）。",
+  "output_description": "输出一行 Hello, World!（不含引号）。",
+  "samples": [
+    { "input": "", "output": "Hello, World!" }
+  ],
+  "constraints": "无特殊限制。",
+  "testcases": [
+    { "input": "", "output": "Hello, World!" },
+    { "input": "anything", "output": "Hello, World!" }
+  ],
+  "time_limit": 1.0,
+  "memory_limit": 128,
+  "author": "oj-team",
+  "difficulty": "入门",
+  "tags": ["模拟"]
+}

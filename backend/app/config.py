@@ -8,6 +8,8 @@
 """
 from pathlib import Path
 
+import os
+
 BASE_DIR = Path(__file__).resolve().parent.parent  # backend/
 DATA_DIR = BASE_DIR / "data"
 
@@ -46,3 +48,9 @@ ADMIN_USER_ID = "0"
 # reset 鉴权开关：api.md 权限为"仅管理员（测试环境可不校验）"、异常含 401/403
 # ⇒ 默认按仅管理员鉴权；若评测确需免登录调用，置 False 放宽（"测试环境可不校验"）。
 RESET_REQUIRE_ADMIN = True
+
+# 演示种子题（polish 2026-09-07，用户反馈 3）：启动时按 id 幂等导入内置示例题，
+# 保证题库初始有 Hello World 与 A+B。测试环境用 OJ_SEED_DEMO=0 关闭（conftest.py），
+# 且 TA 自动评测会先 reset，不受影响。
+SEED_DEMO_PROBLEMS = os.environ.get("OJ_SEED_DEMO", "1") == "1"
+DEMO_PROBLEM_SAMPLES = ["helloworld", "aplusb"]
