@@ -49,8 +49,11 @@ cd /mnt/e/程序/python/大作业-2/frontend
 ### 2.3 测试
 
 ```bash
-wsl ~/oj-venv/bin/python -m pytest tests -q     # backend/ 目录下；63 passed
+wsl ~/oj-venv/bin/python -m pytest tests -q     # backend/ 目录下；64 passed
 ```
+
+> polish（2026-09-07）：启动时**自动种入示例题** Hello World（P1000）与 A+B（P1001），幂等导入（缺失才写）。
+> `POST /api/reset/` 会清空题库且不回种，重启后端即恢复；测试环境经 `OJ_SEED_DEMO=0` 关闭（conftest 已设置）。
 
 ### 2.4 一键启动（推荐）
 
@@ -62,7 +65,7 @@ wsl ~/oj-venv/bin/python -m pytest tests -q     # backend/ 目录下；63 passed
 | 账号 | 说明 |
 |---|---|
 | `admin / admintestpassword` | 初始管理员（系统自动创建，user_id=0） |
-| 普通用户 | 左侧"注册"创建；登录后可见自己的信息/提交 |
+| 普通用户 | 登录页"注册"tab 创建，注册成功**自动登录**并进入题库 |
 
 角色：`admin`（全部权限）/ `user` / `banned`（再登录 403，已登录会话**立即失效**）。
 重置环境：需以 **admin 登录后**调用 `POST /api/reset/`（清空用户/题目/提交/任务并重建 admin 与内置语言；AI 模型配置不清）。
@@ -70,18 +73,21 @@ wsl ~/oj-venv/bin/python -m pytest tests -q     # backend/ 目录下；63 passed
 ## 4. 功能走查
 
 ### 4.1 用户
-- 注册（用户名 3–40、密码 ≥6）→ 登录 → 侧栏显示"退出登录"；
-- 用户页：个人信息（提交数/通过数）；**管理员**可见用户列表并可改角色（admin/user/banned）。
+- 未登录时显示**全画幅登录/注册页**（登录/注册双 tab）；注册成功自动登录，登录后默认落在**题库**页；
+- 侧边栏三项：**题库 / 题目管理 / 个人**（圆角按钮，单击切换），底部退出登录；
+- 个人页：信息卡（提交数/通过题/角色/加入时间）+ "查询我的提交记录"入口；**管理员**可见用户列表并可改角色（admin/user/banned）。
 
 ### 4.2 题目
-- 列表 → 预览/详情（含 samples 与 **testcases**，登录即可见）；
-- 新增/编辑：全字段表单，samples/testcases 用 JSON 编辑（`[{ "input": "...", "output": "..." }]`）；
-- 删除：仅管理员（级联删除该题提交/审计并回退用户统计）。
+- 题库：分页圆角卡片（标题/难度/标签/通过率条，不显示题目 id），悬停变灰，点击进入**题目详情**（二级页）；
+- 题目详情：左侧题面（描述/输入输出/样例/限制/提示），右侧栏 = 提交代码 + 近 3 次提交（每 2s 自动刷新）+ "查询提交记录"入口；
+- 题目管理（所有登录用户可见）：右上角「AI 命题」与「＋ 新增题目」按钮；支持按编号/标题关键词搜索；每题卡片右侧编辑/删除图标（删除经确认弹窗，**仅管理员**；级联删除该题提交/审计并回退用户统计）；
+- 出题表单：time_limit 步进 0.5s、memory_limit 步进 128MB（加减号已放大）；编辑时编号锁定；samples/testcases 用 JSON 编辑（`[{ "input": "...", "output": "..." }]`）。
 
 ### 4.3 评测与提交
-- 提交：选题 + 选语言 + 代码 → 异步评测，秒级完成；
-- 结果：AC/WA/TLE/MLE/RE/CE；分数 = 通过测例数 × 10；编译/运行/错误信息在详情页；
-- 提交记录：普通用户仅看自己的；管理员可按 user/problem/status 筛选（分页）；
+- 提交：题目详情右侧栏「✏️ 提交代码」→ 选语言 + 大文本框贴代码 → **黄色「🚀 提交评测」按钮** → 异步评测，秒级完成；
+- 结果：AC/WA/TLE/MLE/RE/CE；分数 = 通过测例数 × 10；编译/运行/错误信息在提交详情；
+- 近 3 次提交：题目右侧栏实时刷新（状态徽章/得分/语言/时间）；
+- 查询提交记录（题目右侧栏按钮或个人页进入）：按"全部题目/指定题目"（题目下拉只显示标题，不暴露 id）查自己的记录，时间倒序、分页；**管理员**还可按用户范围查询（含"全部用户"）；
 - 重新评测（rejudge）：管理员触发（`PUT .../rejudge`）；
 - 限频：同一用户同一题 1 分钟内第 4 次提交返回 429。
 
@@ -95,7 +101,7 @@ wsl ~/oj-venv/bin/python -m pytest tests -q     # backend/ 目录下；63 passed
 
 `public_cases` 开关：管理员调用 `PUT /api/problems/{id}/log_visibility`（body `{"public_cases": true}`）。审计查询 `GET /api/logs/access/`（仅管理员，需 user_id 或 problem_id 至少一个）。
 
-### 4.4 AI 智能命题（页面：AI 命题）
+### 4.4 AI 智能命题（入口：题目管理页右上角「AI 命题」按钮）
 1. **模型配置**（折叠面板，per-user）：provider_url（通常 `https://openrouter.ai/api/v1`）、model（需 OpenRouter 有明确计价）、api_key（自己 provider 的或 OpenRouter 分发的）；`input_price/output_price` 填模型**美元单价**（USD/1M tokens）；`fx_rate`（USD→CNY，默认 7.2，可当日按人民银行中间价更新）。**不填 key 时自动走本地 mock**（也可完整演示）。
 2. **命题输入**（二选一）：
    - 结构化表单：**语言必选**（=已注册语言下拉）、考点多选（可自定义）、难度分、预期复杂度、数据规模、情景/备注；可选"站内参考题"；
@@ -108,8 +114,8 @@ wsl ~/oj-venv/bin/python -m pytest tests -q     # backend/ 目录下；63 passed
 ## 5. 验收演示脚本（约 10 分钟，两通道）
 
 **通道 A：基础功能（管理员 + 普通用户）**
-1. 登录 admin → 注册 `alice` → 登录 alice；
-2. admin 建题 A+B（含样例与 5 个测试点，含负数/边界）；
+1. 全画幅登录页登录 admin；切「注册」tab 注册 `alice` → 自动登录进入题库；
+2. 题库可见种子题 Hello World（P1000）与 A+B（P1001）；如需演示建题：题目管理 → 「＋ 新增题目」（如 P1002，含样例与 5 个测试点，含负数/边界）；
 3. alice 提交正确 python → 等结果 → 详情显示 AC（全部测例 ×10）；
 4. alice 提交错误代码 → 0/部分分；提交死循环 → TLE；大内存分配 → MLE；
 5. alice 看自己的日志：题目未公开 → 只见分数、无 details；admin 打开 `log_visibility` → alice 可见完整 details；
@@ -119,7 +125,7 @@ wsl ~/oj-venv/bin/python -m pytest tests -q     # backend/ 目录下；63 passed
 **通道 B：AI 命题（mock 即可演示；有 key 走真实）**
 1. 模型配置（mock：不填 key；或填真实 key + 模型 + 价格 + fx_rate）；
 2. 结构化表单：语言 python、考点"排序"、难度 6、**预期复杂度 O(n log n)**、数据规模 10^5、勾选**硬核模式**（重试 2）→ 生成；
-3. 任务完成展示测试点数与费用（CNY）→ 采纳预填 → 题目页保存；
+3. 任务完成展示测试点数与费用（CNY）→ 采纳预填 → 出题表单保存；
 4. 提交 O(n log n) 代码 → AC；提交 O(n²) 暴力 → **中小点过 / 大点 TLE → 部分分**（演示测试数据区分复杂度）；
 5. （可选）纯文本输入含"用 Java 出题" → 被拒绝并提示可用语言。
 
