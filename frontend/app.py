@@ -407,6 +407,8 @@ def render_problem_bank() -> None:
         return
     st.title("题库", icon=":material/menu_book:")
     st.caption("选择一道题目开始你的旅程")
+    search = st.text_input("搜索题目", placeholder="按编号或标题关键词搜索（仅匹配标题）",
+                           key="bank_search", label_visibility="collapsed")
     client = get_client()
     try:
         problems = client.get("/api/problems/")
@@ -423,6 +425,20 @@ def render_problem_bank() -> None:
         return
 
     problems = sorted(problems, key=lambda p: str(p.get("id", "")))
+    query = search.strip().lower()
+    if st.session_state.get("bank_query_prev") != search:
+        # 搜索词变化时回到第一页
+        st.session_state["bank_query_prev"] = search
+        st.session_state.pop("bank_page", None)
+    if query:
+        matched = [p for p in problems
+                   if query in str(p.get("id", "")).lower()
+                   or query in (p.get("title") or "").lower()]
+        st.caption(f"搜索「{search.strip()}」：匹配 {len(matched)} 道题目")
+        if not matched:
+            st.info("未找到匹配的题目")
+            return
+        problems = matched
     total_pages = max(1, math.ceil(len(problems) / BANK_PAGE_SIZE))
     page_num = int(st.session_state.get("bank_page", 1) or 1)
     page_num = max(1, min(page_num, total_pages))
@@ -481,7 +497,7 @@ def render_problem_detail(pid: str) -> None:
         badges = [f":violet-badge[{p.get('difficulty') or '难度未知'}]"]
         badges += [f":gray-badge[{t}]" for t in (p.get("tags") or [])]
         st.markdown(" ".join(badges))
-        st.caption(f"⏱ 时限 {p.get('time_limit', 3.0)}s · 🧠 内存 {p.get('memory_limit', 128)}MB · "
+        st.caption(f"题目编号 `{pid}` · ⏱ 时限 {p.get('time_limit', 3.0)}s · 🧠 内存 {p.get('memory_limit', 128)}MB · "
                    f"样例 {len(p.get('samples') or [])} 个")
 
         st.markdown("**题目描述**")
@@ -805,6 +821,8 @@ def render_manage_page() -> None:
         return
 
     problems = sorted(problems, key=lambda p: str(p.get("id", "")))
+    is_admin = st.session_state.get("user", {}).get("role") == "admin"
+    pending_map = {} if is_admin else _pending_apply_map(client)
     query = search.strip().lower()
     if query:
         matched = [p for p in problems
@@ -817,28 +835,67 @@ def render_manage_page() -> None:
     else:
         matched = problems
     for p in matched:
-        _render_manage_card(p)
+        _render_manage_card(p, pending_map)
 
 
-def _render_manage_card(p: dict) -> None:
+def _pending_apply_map(client) -> dict[str, set[str]]:
+    """普通用户当前 pending 申请：{problem_id: {action,...}}，用于卡片待审批标记。"""
+    try:
+        apps = client.get("/api/applications/").get("applications", [])
+    except ApiClientError:
+        return {}
+    out: dict[str, set[str]] = {}
+    for a in apps:
+        if a.get("status") == "pending":
+            out.setdefault(str(a.get("problem_id", "")), set()).add(a.get("action", ""))
+    return out
+
+
+def _render_manage_card(p: dict, pending_map: dict) -> None:
     pid = str(p.get("id", ""))
     title = p.get("title") or "未命名题目"
+    pending = pending_map.get(pid, set())
+    is_admin = st.session_state.get("user", {}).get("role") == "admin"
     with st.container(border=True, key=f"mg_card_{pid}"):
-        left, right = st.columns([3, 1], vertical_alignment="center")
+        left, right = st.columns([3, 1.4], vertical_alignment="center")
         with left:
             st.markdown(f"### {title}")
             badges = [f":violet-badge[{p.get('difficulty') or '难度未知'}]"]
             badges += [f":gray-badge[{t}]" for t in (p.get("tags") or [])]
+            if "edit" in pending:
+                badges.append(":orange-badge[修改待审批]")
+            if "delete" in pending:
+                badges.append(":orange-badge[删除待审批]")
             st.markdown(" ".join(badges))
         with right:
             edit_col, del_col = st.columns(2)
             if edit_col.button(":material/edit:", key=f"edit_{pid}", help=f"编辑「{title}」",
-                               width="stretch"):
+                               width="stretch", disabled="edit" in pending):
                 st.session_state["manage_action"] = f"edit:{pid}"
                 st.rerun()
             if del_col.button(":material/delete:", key=f"del_{pid}", help=f"删除「{title}」",
-                              width="stretch"):
-                _confirm_delete(pid, title)
+                              width="stretch", disabled="delete" in pending):
+                if is_admin:
+                    _confirm_delete(pid, title)
+                else:
+                    _confirm_delete_apply(pid, title)
+
+
+@st.dialog("提交删除申请")
+def _confirm_delete_apply(pid: str, title: str) -> None:
+    """普通用户删除题目：提交申请，管理员审批后生效。"""
+    st.warning(f"删除「{title}」需管理员审批。审批通过后，该题及其全部提交记录、相关日志将被删除。")
+    col_ok, col_cancel = st.columns(2)
+    if col_ok.button("提交申请", type="primary", width="stretch"):
+        try:
+            get_client().post(f"/api/problems/{pid}/apply", json={"action": "delete"})
+        except ApiClientError as exc:
+            st.error(str(exc))
+            return
+        _flash(f"已提交删除申请：{title}，等待管理员审批")
+        st.rerun()
+    if col_cancel.button("取消", width="stretch"):
+        st.rerun()
 
 
 @st.dialog("确认删除题目")
@@ -860,7 +917,13 @@ def _confirm_delete(pid: str, title: str) -> None:
 # ============================== 出题表单（新增 / 编辑） ==============================
 
 def render_problem_form_page(edit_id: str | None) -> None:
-    st.title("新增题目" if not edit_id else "编辑题目", icon=":material/edit_note:")
+    is_admin = st.session_state.get("user", {}).get("role") == "admin"
+    if not edit_id:
+        st.title("新增题目", icon=":material/edit_note:")
+    else:
+        st.title("编辑题目" if is_admin else "编辑题目（提交修改申请）", icon=":material/edit_note:")
+        if not is_admin:
+            st.caption("普通用户的修改将作为申请提交，管理员审批后才会生效。")
     if st.button(":material/arrow_back: 返回题目管理", key="back_manage"):
         st.session_state.pop("manage_action", None)
         st.session_state.pop("prefill_problem", None)
@@ -888,8 +951,13 @@ def render_problem_form_page(edit_id: str | None) -> None:
     try:
         if edit_id:
             body["id"] = edit_id
-            client.put(f"/api/problems/{edit_id}", json=body)
-            _flash(f"题目已更新：{body['title']}")
+            if is_admin:
+                client.put(f"/api/problems/{edit_id}", json=body)
+                _flash(f"题目已更新：{body['title']}")
+            else:
+                client.post(f"/api/problems/{edit_id}/apply",
+                            json={"action": "edit", "payload": body})
+                _flash(f"已提交修改申请：{body['title']}，等待管理员审批")
         else:
             client.post("/api/problems/", json=body)
             _flash(f"题目已添加：{body['title']}")
@@ -1010,36 +1078,105 @@ def render_profile_page() -> None:
         _goto("query")
 
     if me.get("role") != "admin":
-        st.caption("用户管理仅管理员可见")
+        st.caption("用户管理与申请审批仅管理员可见")
         return
     st.space("medium")
-    st.subheader("用户管理（管理员）", icon=":material/admin_panel_settings:")
+    col_users, col_apps = st.columns(2, gap="large")
+    with col_users:
+        st.subheader("用户管理", icon=":material/admin_panel_settings:")
+        user_query = st.text_input("搜索用户名", placeholder="按用户名关键词过滤",
+                                   key="user_search", label_visibility="collapsed")
+        try:
+            users = client.get("/api/users/").get("users", [])
+        except ApiClientError as exc:
+            _err(exc)
+            users = []
+        if user_query.strip():
+            q = user_query.strip().lower()
+            users = [u for u in users if q in (u.get("username") or "").lower()]
+            st.caption(f"搜索「{user_query.strip()}」：匹配 {len(users)} 个用户")
+        if not users:
+            st.caption("未找到匹配的用户")
+        for u in users:
+            _render_user_row(u, me, client)
+    with col_apps:
+        st.subheader("申请审批", icon=":material/approval:")
+        _render_application_list(client)
+
+
+def _render_user_row(u: dict, me: dict, client) -> None:
+    with st.container(border=True):
+        rc = st.columns([1.5, 2, 2.5, 1, 1])
+        rc[0].markdown(f"**{u.get('username')}**")
+        rc[1].markdown(f":violet-badge[{ROLE_TEXT.get(u.get('role'), u.get('role'))}]")
+        rc[2].write(f"提交 {u.get('submit_count')} · 通过 {u.get('resolve_count')}")
+        roles = ["user", "admin", "banned"]
+        new_role = rc[3].selectbox(
+            "role", roles,
+            index=roles.index(u["role"]) if u["role"] in roles else 0,
+            key=f"role_{u['user_id']}", label_visibility="collapsed")
+        if rc[4].button("保存", key=f"save_{u['user_id']}", width="stretch"):
+            if u["user_id"] == me.get("user_id") and new_role != "admin":
+                st.warning("不能降级当前管理员账号（避免失去管理员）")
+            else:
+                try:
+                    client.put(f"/api/users/{u['user_id']}/role", json={"role": new_role})
+                    _flash(f"{u['username']} → {ROLE_TEXT.get(new_role, new_role)}")
+                    st.rerun()
+                except ApiClientError as exc:
+                    _err(exc)
+
+
+def _render_application_list(client) -> None:
     try:
-        users = client.get("/api/users/").get("users", [])
+        apps = client.get("/api/applications/").get("applications", [])
     except ApiClientError as exc:
         _err(exc)
         return
-    for u in users:
-        with st.container(border=True):
-            rc = st.columns([1.5, 2, 2.5, 1, 1])
-            rc[0].markdown(f"**{u.get('username')}**")
-            rc[1].markdown(f":violet-badge[{ROLE_TEXT.get(u.get('role'), u.get('role'))}]")
-            rc[2].write(f"提交 {u.get('submit_count')} · 通过 {u.get('resolve_count')}")
-            roles = ["user", "admin", "banned"]
-            new_role = rc[3].selectbox(
-                "role", roles,
-                index=roles.index(u["role"]) if u["role"] in roles else 0,
-                key=f"role_{u['user_id']}", label_visibility="collapsed")
-            if rc[4].button("保存", key=f"save_{u['user_id']}", width="stretch"):
-                if u["user_id"] == me.get("user_id") and new_role != "admin":
-                    st.warning("不能降级当前管理员账号（避免失去管理员）")
-                else:
-                    try:
-                        client.put(f"/api/users/{u['user_id']}/role", json={"role": new_role})
-                        _flash(f"{u['username']} → {ROLE_TEXT.get(new_role, new_role)}")
-                        st.rerun()
-                    except ApiClientError as exc:
-                        _err(exc)
+    scope = st.segmented_control("筛选", ["待处理", "全部"], default="待处理", key="app_filter")
+    if scope == "待处理":
+        apps = [a for a in apps if a.get("status") == "pending"]
+    if not apps:
+        st.caption("暂无申请")
+        return
+    for a in apps:
+        _render_application_card(a, client)
+
+
+def _render_application_card(a: dict, client) -> None:
+    aid = a.get("application_id")
+    action = "修改" if a.get("action") == "edit" else "删除"
+    status = a.get("status")
+    with st.container(border=True):
+        st.markdown(f"**{a.get('problem_title') or a.get('problem_id')}** · :gray-badge[{action}申请]")
+        st.caption(f"申请人 {a.get('username')} · {_fmt_time(a.get('created_at', ''))}")
+        if a.get("action") == "edit" and a.get("payload"):
+            with st.expander("查看修改内容"):
+                pl = a["payload"]
+                st.markdown(f"标题：**{pl.get('title', '')}** · 难度：{pl.get('difficulty', '')}")
+                st.caption(f"时限 {pl.get('time_limit')}s · 内存 {pl.get('memory_limit')}MB · "
+                           f"标签 {', '.join(pl.get('tags') or []) or '—'}")
+        if status == "pending":
+            c1, c2 = st.columns(2)
+            if c1.button("接纳", key=f"accept_{aid}", type="primary", width="stretch"):
+                try:
+                    client.put(f"/api/applications/{aid}", json={"decision": "accept"})
+                    _flash(f"已通过申请：{a.get('problem_title')}（{action}）")
+                    st.rerun()
+                except ApiClientError as exc:
+                    st.error(str(exc))
+            if c2.button("拒绝", key=f"reject_{aid}", width="stretch"):
+                try:
+                    client.put(f"/api/applications/{aid}", json={"decision": "reject"})
+                    _flash(f"已拒绝申请：{a.get('problem_title')}")
+                    st.rerun()
+                except ApiClientError as exc:
+                    st.error(str(exc))
+        else:
+            badge = ":green-badge[已接纳]" if status == "accepted" else ":red-badge[已拒绝]"
+            st.markdown(f"{badge} · 处理人 {a.get('decided_by')}")
+            if a.get("decision_note"):
+                st.caption(f"原因：{a['decision_note']}")
 
 
 # ============================== AI 命题（题目管理二级页） ==============================

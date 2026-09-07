@@ -56,7 +56,21 @@ btns = [b.key for b in at.button]
 for k in ("nav_problems", "nav_manage", "nav_profile", "logout"):
     assert k in btns, f"missing nav {k}: {btns}"
 assert "open_P1000" in btns and "open_P1001" in btns, f"missing bank cards: {btns}"
-print("2. 登录后默认题库页 + 三项侧边栏 + 种子题卡片 OK")
+# 题库搜索：按标题关键词过滤（编号同理）
+search_box = [w for w in at.text_input if w.label == "搜索题目"]
+assert search_box, "题库搜索框缺失"
+search_box[0].set_value("A+B")
+at.run()
+assert not at.exception, at.exception
+btns = [b.key for b in at.button]
+assert "open_P1001" in btns and "open_P1000" not in btns, btns
+search_box = [w for w in at.text_input if w.label == "搜索题目"]
+search_box[0].set_value("")
+at.run()
+assert not at.exception, at.exception
+btns = [b.key for b in at.button]
+assert "open_P1000" in btns and "open_P1001" in btns, btns
+print("2. 登录后默认题库页 + 三项侧边栏 + 种子题卡片 + 题库搜索 OK")
 
 # 进入题目详情
 at.button(key="open_P1000").click().run()
@@ -64,7 +78,9 @@ assert not at.exception, at.exception
 assert at.session_state["view_problem_id"] == "P1000"
 btns = [b.key for b in at.button]
 assert "back_to_bank" in btns and "start_submit_P1000" in btns and "goto_query_P1000" in btns, btns
-print("3. 题目详情二级页（返回/提交入口/查询入口）OK")
+caps = [c.value for c in at.caption]
+assert any("题目编号" in (c or "") for c in caps), f"详情页缺少题目编号: {caps}"
+print("3. 题目详情二级页（返回/提交入口/查询入口 + 题目编号）OK")
 
 # 展开提交表单（大文本框 + 语言选择）
 at.button(key="start_submit_P1000").click().run()
@@ -120,23 +136,35 @@ assert diffs and diffs[0].value == "入门", [d.value for d in diffs]
 assert app_mod._nearest_difficulty(7.0) == "提高+" and app_mod._nearest_difficulty(2.3) == "普及-"
 print("8. 出题表单（时限/内存输入 + 难度下拉默认入门）OK")
 
-# 返回 → 编辑已有题目（预填 + 编号锁定）
+# 返回 → 编辑已有题目（预填 + 编号锁定 + 难度预选；普通用户为申请修改）
 at.button(key="back_manage").click().run()
 assert not at.exception, at.exception
 at.button(key="edit_P1000").click().run()
 assert not at.exception, at.exception
 assert at.session_state["manage_action"] == "edit:P1000", at.session_state.get("manage_action")
+assert at.title[0].value == "编辑题目（提交修改申请）", at.title[0].value
 titles = [w.value for w in at.text_input if w.label == "标题 title *"]
 assert titles and titles[0] == "Hello, World!", titles
 locked = [w for w in at.text_input if w.label == "编号 id *"]
 assert locked and locked[0].disabled, "编辑时编号应锁定"
 diffs = [w for w in at.selectbox if w.label == "难度 *"]
 assert diffs and diffs[0].value == "入门", [d.value for d in diffs]
-print("8b. 编辑题目表单（预填 + 编号锁定 + 难度预选）OK")
+print("8b. 编辑题目表单（预填 + 编号锁定 + 难度预选 + 申请提示）OK")
 
-# 返回管理页 → 个人页
-at.button(key="back_manage").click().run()
+# 8c：普通用户提交修改申请 → 卡片显示待审批、编辑按钮禁用
+title_box = [w for w in at.text_input if w.label == "标题 title *"]
+title_box[0].set_value("Hello, World! v2")
+submit_btns = [b for b in at.button if b.label == "保存题目"]
+assert submit_btns, "表单保存按钮缺失"
+submit_btns[0].click().run()
 assert not at.exception, at.exception
+mds = [m.value or "" for m in at.markdown]
+assert any("修改待审批" in m for m in mds), "管理卡片缺少待审批标记"
+edit_btn = [b for b in at.button if b.key == "edit_P1000"]
+assert edit_btn and edit_btn[0].disabled, "待审批时编辑按钮应禁用"
+print("8c. 普通用户修改申请提交与待审批状态 OK")
+
+# 8c 提交后已回到管理列表 → 个人页
 at.button(key="nav_profile").click().run()
 assert not at.exception, at.exception
 assert at.session_state["page"] == "profile"
