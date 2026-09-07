@@ -43,3 +43,9 @@ SUBMISSION_NOT_FOUND = "submission not found"
 # AI 智能命题
 AI_TASK_NOT_FOUND = "ai task not found"
 AI_TASK_ENDED = "task already finished"
+
+# 题目修改/删除申请（polish 2026-09-08，用户反馈：普通用户改删走审批）
+APPLICATION_NOT_FOUND = "application not found"
+APPLICATION_ALREADY_PENDING = "pending application already exists"
+APPLICATION_ALREADY_DECIDED = "application already decided"
+INVALID_ACTION = "invalid action"

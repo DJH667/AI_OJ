@@ -13,6 +13,7 @@ from fastapi import FastAPI
 
 from app import config  # noqa: F401  确保配置模块可导入（供交互式调试）
 from app.api import ai as ai_api
+from app.api import applications as applications_api
 from app.api import auth as auth_api
 from app.api import languages as languages_api
 from app.api import logs as logs_api
@@ -47,6 +48,7 @@ def create_app() -> FastAPI:
     application.include_router(submissions_api.router)
     application.include_router(logs_api.router)
     application.include_router(ai_api.router)
+    application.include_router(applications_api.router)
     return application
 
 
