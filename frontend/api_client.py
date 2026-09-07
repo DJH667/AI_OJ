@@ -58,8 +58,8 @@ class ApiClient:
         return data if data is not None else {}
 
     # ---- 资源接口（按页面按需扩展）----
-    def get(self, path: str) -> dict:
-        return self._request("GET", path)
+    def get(self, path: str, params: dict | None = None) -> dict:
+        return self._request("GET", path, params=params)
 
     def post(self, path: str, json: dict | None = None) -> dict:
         return self._request("POST", path, json=json or {})

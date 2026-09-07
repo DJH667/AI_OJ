@@ -1,12 +1,17 @@
-"""OJ 前端（Streamlit，Step6 + AI 命题）。前后端分离：仅经 REST API + Cookie 会话与 FastAPI 后端交互。
+"""OJ 前端（Streamlit，polish 2026-09-07）。
 
+前后端分离：仅经 REST API + Cookie 会话与 FastAPI 后端交互（api_client.py）。
+结构：全画幅登录/注册（注册成功自动登录）→ 侧边栏三项（题库 / 题目管理 / 个人）→
+- 题库：分页圆角卡片（难度/标签/通过率条），点击进入题目详情；
+- 题目详情（二级页）：左侧题面，右侧栏提交代码（黄色提交按钮）+ 近 3 次提交 + 查询提交记录入口；
+- 查询提交记录（从题目右侧栏或"个人"页进入）：按题/全部、管理员按用户，时间倒序；
+- 题目管理：编号/标题搜索、编辑/删除图标、AI 命题入口、出题表单（time_limit 步进 0.5、memory_limit 步进 128）；
+- 个人：信息卡 + 管理员用户管理。
 启动（backend 先起在 8000）：
     ../.venv/Scripts/python.exe -m streamlit run app.py --server.port 8501   # Windows
-页面组：用户（登录/注册/信息/管理）、题目（列表/详情/新增/编辑/删除）、
-评测与提交（提交/列表/详情/日志）、AI 命题（两界面/硬核对拍/产出预填题目编辑）。
 """
 import json
-import time
+import math
 
 import streamlit as st
 
@@ -19,8 +24,138 @@ TAG_OPTIONS = [
 ]
 COMPLEXITY_OPTIONS = ["O(1)", "O(log n)", "O(n)", "O(n log n)", "O(n^2)", "其他"]
 SCALE_OPTIONS = ["小（n<=10^3）", "中（n<=10^5）", "大（n<=10^7）", "其他"]
-PAGES = ["AI 命题", "题目", "评测", "用户"]
 
+NAV_ITEMS = [
+    ("题库", ":material/menu_book:", "problems"),
+    ("题目管理", ":material/table_chart:", "manage"),
+    ("个人", ":material/person:", "profile"),
+]
+
+BANK_PAGE_SIZE = 10
+QUERY_PAGE_SIZE = 10
+RECENT_SUBMISSIONS = 3
+STATUS_TEXT = {"pending": "评测中", "success": "通过", "error": "错误"}
+STATUS_BADGE = {
+    "pending": ":orange-badge[评测中]",
+    "success": ":green-badge[通过]",
+    "error": ":red-badge[错误]",
+}
+ROLE_TEXT = {"admin": "管理员", "user": "普通用户", "banned": "已禁用"}
+
+# ============================== 全局样式 ==============================
+
+_BASE_CSS = """
+<style>
+/* 全局：浅灰留白背景 */
+.stApp { background: #FAFAF8; }
+
+/* 侧边栏导航：圆角矩形卡片按钮（单击即可切换） */
+section[data-testid="stSidebar"] div[data-testid="stButton"] button {
+  width: 100%;
+  border-radius: 14px;
+  border: 1.5px solid #E4DBF5;
+  background: #FFFFFF;
+  color: #4C1D95;
+  font-weight: 600;
+  padding: 0.6rem 0.9rem;
+  text-align: left;
+  box-shadow: 0 1px 2px rgba(76, 29, 149, 0.06);
+  transition: all 0.15s ease;
+}
+section[data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
+  background: #FBF1D6;
+  border-color: #F0B429;
+  color: #7A4A00;
+  transform: translateY(-1px);
+}
+section[data-testid="stSidebar"] div[data-testid="stButton"] button[kind="primary"] {
+  background: linear-gradient(135deg, #7C3AED, #5B21B6);
+  border-color: #5B21B6;
+  color: #FFFFFF;
+  box-shadow: 0 4px 12px rgba(109, 40, 217, 0.35);
+}
+section[data-testid="stSidebar"] div[data-testid="stButton"] button[kind="primary"]:hover {
+  background: linear-gradient(135deg, #6D28D9, #4C1D95);
+  color: #FFFFFF;
+}
+/* 退出登录：弱化处理 */
+.st-key-logout button {
+  background: transparent !important;
+  border: 1px solid #E9E2F5 !important;
+  color: #6B7280 !important;
+  box-shadow: none !important;
+}
+
+/* 主区域按钮 */
+div[data-testid="stButton"] button,
+div[data-testid="stFormSubmitButton"] button {
+  border-radius: 12px;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+div[data-testid="stButton"] button[kind="secondary"] {
+  border: 1.5px solid #DED3F2;
+  color: #4C1D95;
+  background: #FFFFFF;
+}
+div[data-testid="stButton"] button[kind="secondary"]:hover {
+  border-color: #F0B429;
+  color: #7A4A00;
+  background: #FDF6E3;
+}
+
+/* 提交评测：黄色醒目按钮，与其它部分颜色区分 */
+.st-key-submit_btn button,
+.st-key-submit_btn button[kind="primary"] {
+  background: linear-gradient(135deg, #FBBF24, #F59E0B) !important;
+  border: 1px solid #D97706 !important;
+  color: #451A03 !important;
+  font-weight: 700 !important;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.35) !important;
+}
+.st-key-submit_btn button:hover {
+  background: linear-gradient(135deg, #F59E0B, #D97706) !important;
+  color: #FFFFFF !important;
+}
+
+/* 圆角卡片 + 悬停变灰（题目卡片等） */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+  border-radius: 16px !important;
+  border: 1px solid #E9E3F2 !important;
+  background: #FFFFFF;
+  box-shadow: 0 1px 3px rgba(38, 34, 46, 0.05);
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+div[data-testid="stVerticalBlockBorderWrapper"]:hover {
+  background: #F0EFED !important;
+  border-color: #DAD7D2 !important;
+  box-shadow: 0 3px 10px rgba(38, 34, 46, 0.08);
+}
+
+/* number_input 加减号放大（出题表单 time_limit / memory_limit） */
+div[data-testid="stNumberInput"] button {
+  min-width: 2.2rem !important;
+  height: 2.2rem !important;
+  border-radius: 8px !important;
+  font-size: 1.15rem !important;
+}
+div[data-testid="stNumberInput"] button:hover {
+  background: #FBF1D6 !important;
+  border-color: #F0B429 !important;
+}
+</style>
+"""
+
+# 登录页隐藏侧边栏：让登录/注册占据整个画幅
+_HIDE_SIDEBAR_CSS = """
+<style>
+section[data-testid="stSidebar"] { display: none; }
+div[data-testid="stMainBlockContainer"] { max-width: 56rem; }
+</style>
+"""
+
+
+# ============================== 通用工具 ==============================
 
 def _err(exc: ApiClientError) -> None:
     st.error(f"⚠️ {exc}")
@@ -42,248 +177,434 @@ def _dump(obj) -> str:
     return json.dumps(obj, ensure_ascii=False, indent=1)
 
 
-# ============================== 登录侧栏 ==============================
-
-def render_login_sidebar() -> None:
-    st.sidebar.title("OJ 系统")
-    client = get_client()
-    if "user" in st.session_state:
-        u = st.session_state["user"]
-        st.sidebar.write(f"👤 {u.get('username')}（{u.get('role')}）")
-        if st.sidebar.button("退出登录"):
-            client.logout()
-            for key in ("user", "api_client", "ai_task_id", "prefill_problem"):
-                st.session_state.pop(key, None)
-            st.rerun()
-        return
-    st.sidebar.subheader("登录")
-    with st.sidebar.form("login_form"):
-        username = st.text_input("用户名")
-        password = st.text_input("密码", type="password")
-        if st.form_submit_button("登录"):
-            try:
-                data = client.login(username, password)
-                st.session_state["user"] = data
-                st.rerun()
-            except ApiClientError as exc:
-                st.sidebar.error(str(exc))
-    if st.sidebar.checkbox("注册新账号"):
-        with st.sidebar.form("reg_form"):
-            rname = st.text_input("新用户名")
-            rpass = st.text_input("新密码", type="password")
-            if st.form_submit_button("注册"):
-                try:
-                    client.register(rname, rpass)
-                    st.sidebar.success("注册成功，请登录")
-                except ApiClientError as exc:
-                    st.sidebar.error(str(exc))
+def _reset_sub_state() -> None:
+    """切换一级页面时清理所有二级页面状态（题库页码除外）。"""
+    for key in ("view_problem_id", "submit_open", "manage_action", "ai_open",
+                "query_problem_id", "query_rows", "query_page"):
+        st.session_state.pop(key, None)
 
 
-# ============================== 题目页面组 ==============================
+def _goto(page: str) -> None:
+    st.session_state["page"] = page
+    _reset_sub_state()
+    st.rerun()
 
-REQUIRED_KEYS = ["id", "title", "description", "input_description", "output_description",
-                 "constraints"]
-OPTIONAL_TEXT = ["hint", "source", "author", "difficulty"]
+
+def _flash(message: str) -> None:
+    """跨 rerun 的轻提示（下一轮以 st.toast 展示）。"""
+    st.session_state["flash"] = message
 
 
-def _problem_form_body(prefill: dict | None = None) -> dict | None:
-    p = prefill or {}
-    with st.form("problem_form"):
-        c = st.columns(3)
-        pid = c[0].text_input("id*", value=p.get("id", ""))
-        title = c[1].text_input("title*", value=p.get("title", ""))
-        difficulty = c[2].text_input("difficulty(标签)", value=p.get("difficulty", ""))
-        description = st.text_area("description*", value=p.get("description", ""), height=120)
-        c2 = st.columns(2)
-        input_desc = c2[0].text_area("input_description*", value=p.get("input_description", ""), height=70)
-        output_desc = c2[1].text_area("output_description*", value=p.get("output_description", ""), height=70)
-        constraints = st.text_area("constraints*（数据范围/限制）", value=p.get("constraints", ""), height=50)
-        c3 = st.columns(4)
-        time_limit = c3[0].number_input("time_limit(s)", min_value=0.1, value=float(p.get("time_limit", 3.0)), format="%.1f")
-        memory_limit = c3[1].number_input("memory_limit(MB)", min_value=1, value=int(p.get("memory_limit", 128)))
-        source = c3[2].text_input("source", value=p.get("source", ""))
-        author = c3[3].text_input("author", value=p.get("author", ""))
-        hint = st.text_input("hint(可选)", value=p.get("hint", ""))
-        tags = st.text_input("tags(逗号分隔)", value=",".join(p.get("tags", [])))
-        samples_text = st.text_area("samples（JSON 数组 [{input,output}]）", value=_dump(p.get("samples", [])), height=120)
-        testcases_text = st.text_area("testcases（JSON 数组 [{input,output}]）", value=_dump(p.get("testcases", [])), height=220)
-        submitted = st.form_submit_button("保存题目")
+# ============================== 登录 / 注册 ==============================
+
+def render_auth_page() -> None:
+    """未登录时的全画幅居中登录/注册页（注册成功自动登录并进入题库）。"""
+    _, mid, _ = st.columns([1, 1.1, 1])
+    with mid:
+        st.space("large")
+        st.title("OJ 在线评测", icon=":material/rocket_launch:", text_alignment="center")
+        st.caption("登录或注册，开启你的刷题之旅", text_alignment="center")
+        st.space("medium")
+        with st.container(border=True):
+            tab_login, tab_register = st.tabs(["登录", "注册"])
+            with tab_login:
+                _render_login_form()
+            with tab_register:
+                _render_register_form()
+
+
+def _render_login_form() -> None:
+    with st.form("login_form", border=False):
+        username = st.text_input("用户名", placeholder="用户名（3–40 字符）")
+        password = st.text_input("密码", type="password", placeholder="密码（至少 6 位）")
+        submitted = st.form_submit_button("登 录", key="login_submit", type="primary", width="stretch")
     if not submitted:
-        return None
-    samples = _json_parse(samples_text, "samples")
-    testcases = _json_parse(testcases_text, "testcases")
-    if samples is None or testcases is None:
-        return None
-    if not (pid and title and description and constraints):
-        st.error("id/title/description/constraints 为必填")
-        return None
-    body = {
-        "id": pid, "title": title, "description": description,
-        "input_description": input_desc, "output_description": output_desc,
-        "constraints": constraints, "samples": samples, "testcases": testcases,
-        "time_limit": float(time_limit), "memory_limit": int(memory_limit),
-        "hint": hint, "source": source, "author": author, "difficulty": difficulty,
-    }
-    if tags.strip():
-        body["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
-    return body
-
-
-def render_problems_page() -> None:
-    st.header("📚 题目管理")
+        return
+    if not (username.strip() and password):
+        st.error("请输入用户名和密码")
+        return
     client = get_client()
-    # 采纳 AI 产出 → 自动打开新增表单并预填
-    prefill = st.session_state.pop("prefill_problem", None)
-    action = st.session_state.pop("problem_action", "新建")
-    edit_id = st.session_state.pop("problem_edit_id", None)
+    try:
+        data = client.login(username.strip(), password)
+    except ApiClientError as exc:
+        st.error(f"登录失败：{exc}")
+        return
+    st.session_state["user"] = data
+    _flash(f"欢迎回来，{data.get('username')}！")
+    _goto("problems")
 
-    if st.button("＋ 新建题目"):
-        st.session_state["problem_action"] = "新建"
-        st.rerun()
-    if edit_id:
-        try:
-            detail = client.get(f"/api/problems/{edit_id}")
-            st.session_state["prefill_problem"] = detail
-            st.session_state["problem_action"] = "编辑"
-            st.rerun()
-        except ApiClientError as exc:
-            _err(exc)
 
-    if action == "编辑" and prefill:
-        st.subheader(f"编辑题目 {prefill.get('id')}")
-        body = _problem_form_body(prefill)
-        if body:
-            if body["id"] != prefill.get("id"):
-                body["id"] = prefill.get("id")
-            try:
-                client.put(f"/api/problems/{prefill.get('id')}", json=body)
-                st.success("题目已更新")
-                st.rerun()
-            except ApiClientError as exc:
-                _err(exc)
-    elif action == "新建":
-        st.subheader("新增题目" + ("（已预填 AI 产出，可编辑）" if prefill else ""))
-        body = _problem_form_body(prefill)
-        if body:
-            try:
-                client.post("/api/problems/", json=body)
-                st.success("题目已添加")
-                st.rerun()
-            except ApiClientError as exc:
-                _err(exc)
-    st.divider()
+def _render_register_form() -> None:
+    with st.form("register_form", border=False):
+        rname = st.text_input("用户名", placeholder="3–40 个字符")
+        rpass = st.text_input("密码", type="password", placeholder="至少 6 位")
+        rpass2 = st.text_input("确认密码", type="password")
+        submitted = st.form_submit_button("注 册 并 登 录", key="register_submit", type="primary", width="stretch")
+    if not submitted:
+        return
+    rname = rname.strip()
+    if not rname or not rpass or not rpass2:
+        st.error("请填写完整的注册信息")
+        return
+    if len(rname) < 3 or len(rname) > 40:
+        st.error("用户名长度须为 3–40 个字符")
+        return
+    if len(rpass) < 6:
+        st.error("密码长度至少 6 位")
+        return
+    if rpass != rpass2:
+        st.error("两次输入的密码不一致")
+        return
+    client = get_client()
+    try:
+        client.register(rname, rpass)
+    except ApiClientError as exc:
+        st.error(f"注册失败：{exc}")
+        return
+    try:
+        data = client.login(rname, rpass)
+    except ApiClientError as exc:
+        st.error(f"注册成功，但自动登录失败：{exc}")
+        return
+    st.session_state["user"] = data
+    _flash(f"注册成功，欢迎加入，{data.get('username')}！")
+    _goto("problems")
 
+
+# ============================== 侧边栏 ==============================
+
+def render_sidebar() -> None:
+    with st.sidebar:
+        st.markdown("## :material/rocket_launch: OJ 评测")
+        u = st.session_state.get("user", {})
+        role = u.get("role", "user")
+        st.markdown(f"**{u.get('username', '未知用户')}** · :violet-badge[{ROLE_TEXT.get(role, role)}]")
+        st.space("small")
+        page = st.session_state.get("page", "problems")
+        for label, icon, key in NAV_ITEMS:
+            active = page == key
+            if st.button(f"{icon} {label}", key=f"nav_{key}",
+                         type="primary" if active else "secondary", width="stretch"):
+                _goto(key)
+        st.space("medium")
+        if st.button(":material/logout: 退出登录", key="logout", width="stretch"):
+            _logout()
+
+
+def _logout() -> None:
+    get_client().logout()
+    for key in list(st.session_state.keys()):
+        st.session_state.pop(key)
+    st.session_state["flash"] = "已退出登录"
+    st.rerun()
+
+
+# ============================== 题库 ==============================
+
+def render_problem_bank() -> None:
+    view_pid = st.session_state.get("view_problem_id")
+    if view_pid:
+        render_problem_detail(view_pid)
+        return
+    st.title("题库", icon=":material/menu_book:")
+    st.caption("选择一道题目开始你的旅程")
+    client = get_client()
     try:
         problems = client.get("/api/problems/")
     except ApiClientError as exc:
         _err(exc)
         return
     if not problems:
-        st.info("题库为空。可新建题目，或使用 AI 命题生成后采纳。")
+        st.space("medium")
+        st.markdown("### :material/inbox: 当前题库为空", text_alignment="center")
+        st.caption("题目将在「题目管理」中创建，也可以交给 AI 命题生成。", text_alignment="center")
+        _, c, _ = st.columns([1, 1, 1])
+        if c.button("去题目管理", type="primary", width="stretch"):
+            _goto("manage")
         return
-    is_admin = st.session_state.get("user", {}).get("role") == "admin"
-    for p in problems:
-        c = st.columns([3, 2, 1, 1, 1])
-        c[0].write(f"**{p['id']}** · {p['title']}")
-        if c[1].button("详情", key=f"view_{p['id']}"):
-            st.session_state["problem_edit_id"] = p["id"]
-            st.session_state["problem_view"] = True
-            st.rerun()
-        if c[2].button("编辑", key=f"edit_{p['id']}"):
-            st.session_state["problem_edit_id"] = p["id"]
-            st.session_state["problem_action"] = "编辑"
-            st.rerun()
-        if c[3].button("删除", key=f"del_{p['id']}"):
-            if is_admin:
-                try:
-                    client.delete(f"/api/problems/{p['id']}")
-                    st.success(f"已删除 {p['id']}")
-                    st.rerun()
-                except ApiClientError as exc:
-                    _err(exc)
-            else:
-                st.warning("仅管理员可删除题目")
-        with c[4].expander("预览"):
+
+    problems = sorted(problems, key=lambda p: str(p.get("id", "")))
+    total_pages = max(1, math.ceil(len(problems) / BANK_PAGE_SIZE))
+    page_num = int(st.session_state.get("bank_page", 1) or 1)
+    page_num = max(1, min(page_num, total_pages))
+    st.session_state["bank_page"] = page_num
+    start = (page_num - 1) * BANK_PAGE_SIZE
+    for p in problems[start:start + BANK_PAGE_SIZE]:
+        _render_problem_card(p)
+
+    prev_col, info_col, next_col = st.columns([1, 2, 1], vertical_alignment="center")
+    if prev_col.button("← 上一页", key="bank_prev", disabled=page_num <= 1, width="stretch"):
+        st.session_state["bank_page"] = page_num - 1
+        st.rerun()
+    info_col.markdown(f"第 {page_num} / {total_pages} 页 · 共 {len(problems)} 道题目", text_alignment="center")
+    if next_col.button("下一页 →", key="bank_next", disabled=page_num >= total_pages, width="stretch"):
+        st.session_state["bank_page"] = page_num + 1
+        st.rerun()
+
+
+def _render_problem_card(p: dict) -> None:
+    pid = str(p.get("id", ""))
+    with st.container(border=True, key=f"pb_card_{pid}"):
+        left, right = st.columns([2.6, 1], vertical_alignment="center")
+        with left:
+            st.markdown(f"### {p.get('title') or '未命名题目'}")
+            badges = [f":violet-badge[{p.get('difficulty') or '难度未知'}]"]
+            badges += [f":gray-badge[{t}]" for t in (p.get("tags") or [])]
+            st.markdown(" ".join(badges))
+        with right:
+            st.progress(float(p.get("pass_rate") or 0.0), text="通过率")
+            if st.button("进入题目", key=f"open_{pid}", type="primary", width="stretch"):
+                st.session_state["view_problem_id"] = pid
+                st.session_state.pop("submit_open", None)
+                st.rerun()
+
+
+# ============================== 题目详情（二级页） ==============================
+
+def render_problem_detail(pid: str) -> None:
+    client = get_client()
+    if st.button(":material/arrow_back: 返回题库", key="back_to_bank"):
+        st.session_state.pop("view_problem_id", None)
+        st.session_state.pop("submit_open", None)
+        st.rerun()
+    try:
+        p = client.get(f"/api/problems/{pid}")
+    except ApiClientError as exc:
+        _err(exc)
+        st.warning("题目可能已被删除，请返回题库。")
+        return
+
+    left, right = st.columns([2.1, 1], gap="large")
+    with right:
+        _render_submit_panel(pid)
+    with left:
+        st.title(p.get("title") or "未命名题目", icon=":material/article:")
+        badges = [f":violet-badge[{p.get('difficulty') or '难度未知'}]"]
+        badges += [f":gray-badge[{t}]" for t in (p.get("tags") or [])]
+        st.markdown(" ".join(badges))
+        st.caption(f"⏱ 时限 {p.get('time_limit', 3.0)}s · 🧠 内存 {p.get('memory_limit', 128)}MB · "
+                   f"样例 {len(p.get('samples') or [])} 个")
+
+        st.markdown("**题目描述**")
+        st.markdown(p.get("description") or "—")
+        st.markdown("**输入格式**")
+        st.markdown(p.get("input_description") or "—")
+        st.markdown("**输出格式**")
+        st.markdown(p.get("output_description") or "—")
+        samples = p.get("samples") or []
+        if samples:
+            st.markdown("**样例**")
+            for i, s in enumerate(samples, 1):
+                st.caption(f"样例 {i}")
+                sc1, sc2 = st.columns(2)
+                sc1.code(s.get("input", ""), language="text")
+                sc2.code(s.get("output", ""), language="text")
+        st.markdown("**数据范围与约束**")
+        st.markdown(p.get("constraints") or "—")
+        if p.get("hint"):
+            st.markdown("**提示**")
+            st.markdown(p["hint"])
+        meta = []
+        if p.get("source"):
+            meta.append(f"来源：{p['source']}")
+        if p.get("author"):
+            meta.append(f"作者：{p['author']}")
+        if meta:
+            st.caption(" · ".join(meta))
+
+
+def _render_submit_panel(pid: str) -> None:
+    client = get_client()
+    with st.container(border=True):
+        st.markdown("#### :material/send: 提交")
+        if not st.session_state.get("submit_open"):
+            if st.button("✏️ 提交代码", key=f"start_submit_{pid}", type="primary", width="stretch"):
+                st.session_state["submit_open"] = True
+                st.rerun()
+        else:
             try:
-                detail = client.get(f"/api/problems/{p['id']}")
+                languages = client.get("/api/languages/").get("name", [])
             except ApiClientError as exc:
                 _err(exc)
-                continue
-            st.write(detail.get("description", ""))
-            st.markdown(f"**输入**：{detail.get('input_description','')}")
-            st.markdown(f"**输出**：{detail.get('output_description','')}")
-            st.markdown(f"**限制**：{detail.get('constraints','')}")
-            st.caption(f"样例 {len(detail.get('samples',[]))} 个 · 测试点 {len(detail.get('testcases',[]))} 个 · "
-                       f"限时 {detail.get('time_limit')}s / {detail.get('memory_limit')}MB")
+                languages = []
+            lang = st.selectbox("语言", languages or ["python"])
+            code = st.text_area("代码", height=280, placeholder="# 在这里粘贴你的代码…",
+                                label_visibility="collapsed")
+            if st.button("🚀 提交评测", key="submit_btn", type="primary", width="stretch"):
+                if not code.strip():
+                    st.error("代码不能为空")
+                else:
+                    try:
+                        data = client.post("/api/submissions/", json={
+                            "problem_id": pid, "language": lang, "code": code,
+                        })
+                        _flash(f"已提交，评测中…（#{data.get('submission_id')}）")
+                        st.rerun()
+                    except ApiClientError as exc:
+                        _err(exc)
+    with st.container(border=True):
+        st.markdown("#### :material/history: 近 3 次提交")
+        _render_recent_submissions(pid)
+        if st.button("查询提交记录", key=f"goto_query_{pid}", width="stretch"):
+            st.session_state["page"] = "query"
+            _reset_sub_state()
+            st.session_state["query_problem_id"] = pid
+            st.rerun()
 
 
-# ============================== 评测页面组 ==============================
-
-def render_submissions_page() -> None:
-    st.header("🧪 评测与提交")
+@st.fragment(run_every=2)
+def _render_recent_submissions(pid: str) -> None:
+    """右侧栏近 3 次提交：每 2s 自动刷新，提交后无需手动刷新即可看到评测结果。"""
     client = get_client()
-    me = st.session_state["user"]
-
-    st.subheader("提交代码")
     try:
-        problems = client.get("/api/problems/")
-        languages = client.get("/api/languages/").get("name", [])
+        data = client.get("/api/submissions/", params={
+            "problem_id": pid, "page_size": RECENT_SUBMISSIONS,
+        })
+        items = data.get("submissions", [])
+    except ApiClientError as exc:
+        st.caption(f"加载失败：{exc}")
+        return
+    if not items:
+        st.caption("暂无提交记录，来做第一个提交的人吧！")
+        return
+    for s in items:
+        _render_submission_row(s)
+
+
+def _render_submission_row(s: dict) -> None:
+    status = s.get("status", "")
+    badge = STATUS_BADGE.get(status, f":gray-badge[{status or '未知'}]")
+    if status == "success":
+        score = f"{s.get('score', 0)}/{s.get('counts', 0)}"
+    else:
+        score = "—"
+    st.markdown(f"{badge} {score} · `{s.get('language', '')}` · {s.get('created_at', '')}")
+
+
+# ============================== 查询提交记录 ==============================
+
+def render_query_page() -> None:
+    st.title("查询提交记录", icon=":material/query_stats:")
+    st.caption("按题目或全部范围查询提交记录（时间倒序）；管理员可查看所有用户的提交。")
+    client = get_client()
+    me = st.session_state.get("user", {})
+    is_admin = me.get("role") == "admin"
+    try:
+        problems = sorted(client.get("/api/problems/"), key=lambda p: str(p.get("id", "")))
+        users = client.get("/api/users/").get("users", []) if is_admin else []
     except ApiClientError as exc:
         _err(exc)
         return
-    with st.form("submit_form"):
-        c = st.columns(2)
-        pids = [p["id"] for p in problems]
-        pid = c[0].selectbox("题目", pids) if pids else c[0].text_input("题目 id")
-        lang = c[1].selectbox("语言", languages) if languages else c[1].text_input("语言")
-        code = st.text_area("代码", height=180)
-        if st.form_submit_button("提交评测"):
-            if not pids and not (pid and lang):
-                st.error("请先创建题目或选择语言")
-            else:
-                try:
-                    data = client.post("/api/submissions/", json={"problem_id": pid, "language": lang, "code": code})
-                    st.success(f"已提交：{data.get('submission_id')}（异步评测中）")
-                    st.session_state["watch_sid"] = data.get("submission_id")
-                except ApiClientError as exc:
-                    _err(exc)
 
-    st.subheader("我的提交记录")
-    with st.form("list_filter"):
-        c = st.columns(3)
-        user_id = c[0].text_input("user_id（留空=仅自己）", value="")
-        problem = c[1].text_input("problem_id（可选）")
-        status = c[2].selectbox("status", ["", "pending", "success", "error"])
-        if st.form_submit_button("查询"):
-            params = {}
-            if me.get("role") == "admin" and user_id.strip():
-                params["user_id"] = user_id.strip()
-            elif user_id.strip():
-                st.warning("普通用户只能查自己的提交")
-            if problem.strip():
-                params["problem_id"] = problem.strip()
-            if status:
-                params["status"] = status
-            if not params:
-                params = {"user_id": me.get("user_id")}
+    title_by_id = {p["id"]: p.get("title") for p in problems}
+    pids = [p["id"] for p in problems]
+    preselect_pid = st.session_state.pop("query_problem_id", None)
+    options = [""] + pids
+    if preselect_pid and preselect_pid in pids:
+        st.session_state.pop("query_problem", None)  # 重置旧的选择控件状态以应用预选
+        index = pids.index(preselect_pid) + 1
+    else:
+        index = 0
+    problem_choice = st.selectbox(
+        "题目",
+        options,
+        index=index,
+        key="query_problem",
+        format_func=lambda pid: "全部题目" if pid == "" else title_by_id.get(pid, "未知题目"),
+    )
+
+    scope = "self"
+    if is_admin:
+        user_labels = ["仅自己", "全部用户"] + [u["username"] for u in users]
+        scope_label = st.selectbox("用户范围", user_labels, key="query_scope")
+        if scope_label == "全部用户":
+            scope = "all"
+        elif scope_label != "仅自己":
+            for u in users:
+                if u["username"] == scope_label:
+                    scope = f"user:{u['user_id']}"
+                    break
+
+    if st.button("查询", key="run_query", type="primary", width="stretch"):
+        _fetch_query_results(client, me, problem_choice, scope, users)
+
+    rows = st.session_state.get("query_rows")
+    if rows is None:
+        st.caption("选择范围后点击「查询」")
+        return
+    if not rows:
+        st.space("small")
+        st.markdown("### :material/inbox: 暂无提交记录", text_alignment="center")
+        st.caption("提交评测后，这里会按时间倒序显示记录。", text_alignment="center")
+        return
+
+    total_pages = max(1, math.ceil(len(rows) / QUERY_PAGE_SIZE))
+    page_num = int(st.session_state.get("query_page", 1) or 1)
+    page_num = max(1, min(page_num, total_pages))
+    st.session_state["query_page"] = page_num
+    start = (page_num - 1) * QUERY_PAGE_SIZE
+    for s in rows[start:start + QUERY_PAGE_SIZE]:
+        _render_query_row(s, title_by_id, client, me)
+
+    prev_col, info_col, next_col = st.columns([1, 2, 1], vertical_alignment="center")
+    if prev_col.button("← 上一页", key="query_prev", disabled=page_num <= 1, width="stretch"):
+        st.session_state["query_page"] = page_num - 1
+        st.rerun()
+    info_col.markdown(f"第 {page_num} / {total_pages} 页 · 共 {len(rows)} 条记录", text_alignment="center")
+    if next_col.button("下一页 →", key="query_next", disabled=page_num >= total_pages, width="stretch"):
+        st.session_state["query_page"] = page_num + 1
+        st.rerun()
+
+
+def _fetch_query_results(client, me: dict, problem_choice: str, scope: str, users: list) -> None:
+    """按范围取提交记录（后端契约：一级条件 user_id/problem_id 至少其一）。
+
+    - 普通用户：仅自己（后端亦强制归一）；
+    - 管理员 + 指定题目 + 全部用户：只传 problem_id（后端返回该题所有用户记录）；
+    - 管理员 + 全部题目 + 全部用户：逐用户查询后合并，按提交倒序（保留契约，不新增接口）。
+    """
+    me_id = me.get("user_id")
+    params: dict = {}
+    if problem_choice:
+        params["problem_id"] = problem_choice
+    if scope == "self":
+        params["user_id"] = me_id
+    elif scope.startswith("user:"):
+        params["user_id"] = scope[len("user:"):]
+    elif scope == "all" and not problem_choice:
+        merged: list[dict] = []
+        for u in users:
             try:
-                data = client.get(f"/api/submissions/?{'&'.join(f'{k}={v}' for k, v in params.items())}")
-                st.session_state["sub_list"] = data.get("submissions", [])
-            except ApiClientError as exc:
-                _err(exc)
-    sub_list = st.session_state.get("sub_list", [])
-    if sub_list:
-        rows = []
-        for s in sub_list:
-            if s.get("status") == "success":
-                rows.append([s["submission_id"], s["status"], s.get("score", 0), s.get("counts", 0)])
-            else:
-                rows.append([s["submission_id"], s["status"], "-", "-"])
-        st.table(rows)
-        sids = [r[0] for r in rows]
-        target = st.selectbox("查看详情/日志", ["--"] + sids)
-        if target != "--":
-            show_detail_and_log(client, target, me)
+                data = get_client().get("/api/submissions/", params={
+                    "user_id": u["user_id"], "page_size": 1000,
+                })
+                merged += data.get("submissions", [])
+            except ApiClientError:
+                continue
+        merged.sort(key=lambda r: str(r.get("submission_id", "")), reverse=True)
+        st.session_state["query_rows"] = merged
+        st.session_state["query_page"] = 1
+        return
+    try:
+        data = get_client().get("/api/submissions/", params={**params, "page_size": 1000})
+        st.session_state["query_rows"] = data.get("submissions", [])
+        st.session_state["query_page"] = 1
+    except ApiClientError as exc:
+        _err(exc)
+
+
+def _render_query_row(s: dict, title_by_id: dict, client, me: dict) -> None:
+    status = s.get("status", "")
+    status_text = STATUS_TEXT.get(status, status or "未知")
+    title = title_by_id.get(s.get("problem_id"), s.get("problem_id") or "未知题目")
+    if status == "success":
+        score = f"{s.get('score', 0)}/{s.get('counts', 0)}"
+    else:
+        score = "—"
+    label = (f"{status_text} · {title} · {s.get('language', '')} · 得分 {score} · "
+             f"{s.get('created_at', '')}")
+    with st.expander(label, icon=":material/receipt_long:"):
+        show_detail_and_log(client, s.get("submission_id", ""), me)
 
 
 def show_detail_and_log(client, sid: str, me: dict) -> None:
@@ -295,13 +616,14 @@ def show_detail_and_log(client, sid: str, me: dict) -> None:
         else:
             _err(exc)
         return
-    st.markdown(f"**{sid}** · status=`{detail.get('status')}` · "
+    status = detail.get("status")
+    st.markdown(f"{STATUS_BADGE.get(status, status)} · "
                 f"score={detail.get('score')}/{detail.get('counts')}")
     with st.expander("代码", expanded=False):
-        st.code(detail.get("code", ""), language="python")
+        st.code(detail.get("code") or "", language="python")
     ci = detail.get("compile_info")
     if ci:
-        st.write(f"编译：{ci.get('result')} · {ci.get('message','')[:500]}")
+        st.write(f"编译：{ci.get('result')} · {ci.get('message', '')[:500]}")
     st.write(f"运行：{(detail.get('run_info') or {}).get('message', '—')}")
     if detail.get("error_info"):
         st.error(detail["error_info"])
@@ -320,54 +642,242 @@ def show_detail_and_log(client, sid: str, me: dict) -> None:
             _err(exc)
 
 
-# ============================== 用户页面组 ==============================
+# ============================== 题目管理 ==============================
 
-def render_users_page() -> None:
-    st.header("👥 用户")
+def render_manage_page() -> None:
+    if st.session_state.get("ai_open"):
+        render_ai_page()
+        return
+    action = st.session_state.get("manage_action")
+    if action == "new":
+        render_problem_form_page(None)
+        return
+    if isinstance(action, str) and action.startswith("edit:"):
+        render_problem_form_page(action[len("edit:"):])
+        return
+
+    st.title("题目管理", icon=":material/table_chart:")
+    st.caption("新增、编辑或删除题目；删除仅管理员可用。")
+    search_col, btn_col = st.columns([2.6, 1], vertical_alignment="bottom")
+    search = search_col.text_input("搜索题目", placeholder="按编号或标题关键词搜索（仅匹配标题）",
+                                   label_visibility="collapsed")
+    ai_col, new_col = btn_col.columns(2)
+    if ai_col.button(":material/auto_awesome: AI 命题", key="open_ai", width="stretch"):
+        st.session_state["ai_open"] = True
+        st.rerun()
+    if new_col.button(":material/add: 新增题目", key="new_problem", type="primary", width="stretch"):
+        st.session_state["manage_action"] = "new"
+        st.rerun()
+
     client = get_client()
-    me = st.session_state["user"]
+    try:
+        problems = client.get("/api/problems/")
+    except ApiClientError as exc:
+        _err(exc)
+        return
+    if not problems:
+        st.space("medium")
+        st.markdown("### :material/inbox: 当前题库为空", text_alignment="center")
+        st.caption("点击右上角「新增题目」，或使用「AI 命题」生成后采纳。", text_alignment="center")
+        return
+
+    problems = sorted(problems, key=lambda p: str(p.get("id", "")))
+    query = search.strip().lower()
+    if query:
+        matched = [p for p in problems
+                   if query in str(p.get("id", "")).lower()
+                   or query in (p.get("title") or "").lower()]
+        st.caption(f"搜索「{search.strip()}」：匹配 {len(matched)} 道题目")
+        if not matched:
+            st.info("未找到匹配的题目")
+            return
+    else:
+        matched = problems
+    for p in matched:
+        _render_manage_card(p)
+
+
+def _render_manage_card(p: dict) -> None:
+    pid = str(p.get("id", ""))
+    title = p.get("title") or "未命名题目"
+    with st.container(border=True, key=f"mg_card_{pid}"):
+        left, right = st.columns([3, 1], vertical_alignment="center")
+        with left:
+            st.markdown(f"### {title}")
+            badges = [f":violet-badge[{p.get('difficulty') or '难度未知'}]"]
+            badges += [f":gray-badge[{t}]" for t in (p.get("tags") or [])]
+            st.markdown(" ".join(badges))
+        with right:
+            edit_col, del_col = st.columns(2)
+            if edit_col.button(":material/edit:", key=f"edit_{pid}", help=f"编辑「{title}」",
+                               width="stretch"):
+                st.session_state["manage_action"] = f"edit:{pid}"
+                st.rerun()
+            if del_col.button(":material/delete:", key=f"del_{pid}", help=f"删除「{title}」",
+                              width="stretch"):
+                _confirm_delete(pid, title)
+
+
+@st.dialog("确认删除题目")
+def _confirm_delete(pid: str, title: str) -> None:
+    st.warning(f"将删除题目「{title}」，该题的全部提交记录与相关日志也会一并删除，且无法恢复。")
+    col_ok, col_cancel = st.columns(2)
+    if col_ok.button("确认删除", type="primary", width="stretch"):
+        try:
+            get_client().delete(f"/api/problems/{pid}")
+        except ApiClientError as exc:
+            st.error(str(exc))
+            return
+        _flash(f"已删除题目：{title}")
+        st.rerun()
+    if col_cancel.button("取消", width="stretch"):
+        st.rerun()
+
+
+# ============================== 出题表单（新增 / 编辑） ==============================
+
+def render_problem_form_page(edit_id: str | None) -> None:
+    st.title("新增题目" if not edit_id else "编辑题目", icon=":material/edit_note:")
+    if st.button(":material/arrow_back: 返回题目管理", key="back_manage"):
+        st.session_state.pop("manage_action", None)
+        st.session_state.pop("prefill_problem", None)
+        st.rerun()
+
+    prefill = st.session_state.pop("prefill_problem", None)
+    if edit_id:
+        client = get_client()
+        try:
+            prefill = client.get(f"/api/problems/{edit_id}")
+        except ApiClientError as exc:
+            _err(exc)
+            st.warning("题目可能已被删除，请返回题目管理。")
+            return
+    body = _problem_form_body(prefill, lock_id=bool(edit_id))
+    if body is None:
+        return
+    client = get_client()
+    try:
+        if edit_id:
+            body["id"] = edit_id
+            client.put(f"/api/problems/{edit_id}", json=body)
+            _flash(f"题目已更新：{body['title']}")
+        else:
+            client.post("/api/problems/", json=body)
+            _flash(f"题目已添加：{body['title']}")
+    except ApiClientError as exc:
+        _err(exc)
+        return
+    st.session_state.pop("manage_action", None)
+    st.rerun()
+
+
+def _problem_form_body(prefill: dict | None = None, lock_id: bool = False) -> dict | None:
+    p = prefill or {}
+    with st.form("problem_form", border=False):
+        c = st.columns([1, 2, 1])
+        pid = c[0].text_input("编号 id *", value=p.get("id", ""), disabled=lock_id,
+                              help="题目唯一编号（编辑时不可修改）")
+        title = c[1].text_input("标题 title *", value=p.get("title", ""))
+        difficulty = c[2].text_input("难度（标签）", value=p.get("difficulty", ""))
+        description = st.text_area("题目描述 description *", value=p.get("description", ""), height=120)
+        c2 = st.columns(2)
+        input_desc = c2[0].text_area("输入格式 input_description *", value=p.get("input_description", ""), height=70)
+        output_desc = c2[1].text_area("输出格式 output_description *", value=p.get("output_description", ""), height=70)
+        constraints = st.text_area("数据范围与约束 constraints *（数据范围/限制）",
+                                   value=p.get("constraints", ""), height=50)
+        c3 = st.columns(4)
+        # polish：time_limit 步进 0.5s、memory_limit 步进 128MB，加减号已用 CSS 放大
+        time_limit = c3[0].number_input("时限 time_limit（秒）", min_value=0.5,
+                                        value=float(p.get("time_limit", 1.0)), step=0.5, format="%.1f")
+        memory_limit = c3[1].number_input("内存 memory_limit（MB）", min_value=128,
+                                          value=int(p.get("memory_limit", 128)), step=128)
+        source = c3[2].text_input("来源 source", value=p.get("source", ""))
+        author = c3[3].text_input("作者 author", value=p.get("author", ""))
+        hint = st.text_input("提示 hint（可选）", value=p.get("hint", ""))
+        tags = st.text_input("标签 tags（逗号分隔）", value=",".join(p.get("tags", [])))
+        samples_text = st.text_area("样例 samples（JSON 数组 [{input,output}]）",
+                                    value=_dump(p.get("samples", [])), height=120)
+        testcases_text = st.text_area("测试点 testcases（JSON 数组 [{input,output}]）",
+                                      value=_dump(p.get("testcases", [])), height=220)
+        submitted = st.form_submit_button("保存题目", type="primary", width="stretch")
+    if not submitted:
+        return None
+    samples = _json_parse(samples_text, "samples")
+    testcases = _json_parse(testcases_text, "testcases")
+    if samples is None or testcases is None:
+        return None
+    if not (pid and title and description and input_desc and output_desc and constraints):
+        st.error("id/title/description/input_description/output_description/constraints 为必填")
+        return None
+    body = {
+        "id": pid, "title": title, "description": description,
+        "input_description": input_desc, "output_description": output_desc,
+        "constraints": constraints, "samples": samples, "testcases": testcases,
+        "time_limit": float(time_limit), "memory_limit": int(memory_limit),
+        "hint": hint, "source": source, "author": author, "difficulty": difficulty,
+    }
+    if tags.strip():
+        body["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+    return body
+
+
+# ============================== 个人中心 ==============================
+
+def render_profile_page() -> None:
+    st.title("个人中心", icon=":material/person:")
+    client = get_client()
+    me = st.session_state.get("user", {})
     try:
         info = client.get(f"/api/users/{me.get('user_id')}")
     except ApiClientError as exc:
         _err(exc)
         return
-    c = st.columns(4)
-    c[0].metric("用户名", info.get("username"))
-    c[1].metric("角色", info.get("role"))
-    c[2].metric("提交数", info.get("submit_count"))
-    c[3].metric("通过数", info.get("resolve_count"))
-    st.caption(f"加入时间：{info.get('join_time')}")
+    with st.container(border=True):
+        st.markdown(f"### :material/account_circle: {info.get('username')}")
+        st.markdown(f":violet-badge[{ROLE_TEXT.get(info.get('role'), info.get('role'))}]")
+        c = st.columns(4)
+        c[0].metric("提交数", info.get("submit_count"))
+        c[1].metric("通过题目", info.get("resolve_count"))
+        c[2].metric("角色", ROLE_TEXT.get(info.get('role'), info.get('role')))
+        c[3].metric("加入时间", info.get("join_time"))
+
+    if st.button(":material/query_stats: 查询我的提交记录", key="profile_query", type="primary"):
+        _goto("query")
 
     if me.get("role") != "admin":
-        st.info("用户管理仅管理员可见")
+        st.caption("用户管理仅管理员可见")
         return
-    st.divider()
-    st.subheader("用户管理（管理员）")
+    st.space("medium")
+    st.subheader("用户管理（管理员）", icon=":material/admin_panel_settings:")
     try:
         users = client.get("/api/users/").get("users", [])
     except ApiClientError as exc:
         _err(exc)
         return
     for u in users:
-        rc = st.columns([1, 2, 2, 1, 2])
-        rc[0].write(u.get("user_id"))
-        rc[1].write(u.get("username"))
-        rc[2].write(f"{u.get('role')} · 提交{u.get('submit_count')} · 通过{u.get('resolve_count')}")
-        new_role = rc[3].selectbox("role", ["user", "admin", "banned"], index=["user", "admin", "banned"].index(u["role"]) if u["role"] in ("user", "admin", "banned") else 0,
-                                   key=f"role_{u['user_id']}", label_visibility="collapsed")
-        if rc[4].button("保存", key=f"save_{u['user_id']}"):
-            if u["user_id"] == me.get("user_id") and new_role != "admin":
-                st.warning("不能降级当前管理员账号（避免失去管理员）")
-            else:
-                try:
-                    client.put(f"/api/users/{u['user_id']}/role", json={"role": new_role})
-                    st.success(f"{u['username']} → {new_role}")
-                    st.rerun()
-                except ApiClientError as exc:
-                    _err(exc)
+        with st.container(border=True):
+            rc = st.columns([1.5, 2, 2.5, 1, 1])
+            rc[0].markdown(f"**{u.get('username')}**")
+            rc[1].markdown(f":violet-badge[{ROLE_TEXT.get(u.get('role'), u.get('role'))}]")
+            rc[2].write(f"提交 {u.get('submit_count')} · 通过 {u.get('resolve_count')}")
+            roles = ["user", "admin", "banned"]
+            new_role = rc[3].selectbox(
+                "role", roles,
+                index=roles.index(u["role"]) if u["role"] in roles else 0,
+                key=f"role_{u['user_id']}", label_visibility="collapsed")
+            if rc[4].button("保存", key=f"save_{u['user_id']}", width="stretch"):
+                if u["user_id"] == me.get("user_id") and new_role != "admin":
+                    st.warning("不能降级当前管理员账号（避免失去管理员）")
+                else:
+                    try:
+                        client.put(f"/api/users/{u['user_id']}/role", json={"role": new_role})
+                        _flash(f"{u['username']} → {ROLE_TEXT.get(new_role, new_role)}")
+                        st.rerun()
+                    except ApiClientError as exc:
+                        _err(exc)
 
 
-# ============================== AI 命题 ==============================
+# ============================== AI 命题（题目管理二级页） ==============================
 
 def _available_languages() -> list[str]:
     try:
@@ -384,12 +894,14 @@ def _available_problems() -> list[str]:
 
 
 def render_ai_page() -> None:
-    st.header("🤖 AI 智能命题")
+    st.title("AI 智能命题", icon=":material/auto_awesome:")
+    if st.button(":material/arrow_back: 返回题目管理", key="back_ai"):
+        st.session_state.pop("ai_open", None)
+        st.rerun()
     with st.expander("模型配置（per-user，OpenRouter 计价 / CNY）", expanded=False):
         _render_model_config()
-    st.divider()
 
-    mode = st.radio("输入方式", ["结构化表单", "纯文本"], horizontal=True)
+    mode = st.segmented_control("输入方式", ["结构化表单", "纯文本"], default="结构化表单")
     requirement, language, problem_id, hardcore, retry_limit = "", None, None, False, 2
     if mode == "结构化表单":
         languages = _available_languages()
@@ -480,20 +992,20 @@ def render_task_progress(task_id: str) -> None:
     st.write(f"状态：**{data.get('status')}** · {data.get('progress', '')}")
     usage = data.get("usage")
     if usage:
-        st.caption(f"Token：{usage.get('input_tokens',0)} in / {usage.get('output_tokens',0)} out · "
-                   f"费用 {usage.get('cost',0)} {usage.get('currency','CNY')}（USD 单价 × fx_rate {usage.get('fx_rate','')}）")
+        st.caption(f"Token：{usage.get('input_tokens', 0)} in / {usage.get('output_tokens', 0)} out · "
+                   f"费用 {usage.get('cost', 0)} {usage.get('currency', 'CNY')}（USD 单价 × fx_rate {usage.get('fx_rate', '')}）")
     if data.get("review"):
-        st.warning(f"需人工复核：{data.get('review_note','')}")
+        st.warning(f"需人工复核：{data.get('review_note', '')}")
     if data.get("error"):
         st.error(data["error"])
     result = data.get("result")
     if result:
-        st.success(f"命题完成：{result.get('title','')}（语言 {result.get('language','')}，"
-                   f"测试点 {len(result.get('testcases',[]))} 个）")
+        st.success(f"命题完成：{result.get('title', '')}（语言 {result.get('language', '')}，"
+                   f"测试点 {len(result.get('testcases', []))} 个）")
         if st.button("✏️ 采纳到题目编辑（预填）", type="primary"):
             st.session_state["prefill_problem"] = result
-            st.session_state["problem_action"] = "新建"
-            st.session_state["page"] = "题目"
+            st.session_state["manage_action"] = "new"
+            st.session_state.pop("ai_open", None)
             st.rerun()
         with st.expander("查看产出 JSON"):
             st.json(result)
@@ -539,22 +1051,32 @@ def _render_model_config() -> None:
     st.caption("计价：模型单价取自 OpenRouter（USD/1M tokens）；费用 = token/单位×单价(USD)×fx_rate，CNY 展示。")
 
 
+# ============================== 入口 ==============================
+
 def main() -> None:
-    st.set_page_config(page_title="OJ 前端", layout="wide")
-    render_login_sidebar()
-    if "user" not in st.session_state:
-        st.info("请先在左侧登录（无账号可注册）。")
-        return
-    page = st.sidebar.radio("功能", PAGES, index=PAGES.index(st.session_state.get("page", "AI 命题")))
-    st.session_state["page"] = page
-    if page == "AI 命题":
-        render_ai_page()
-    elif page == "题目":
-        render_problems_page()
-    elif page == "评测":
-        render_submissions_page()
+    st.set_page_config(page_title="OJ 评测系统", page_icon=":material/rocket_launch:", layout="wide")
+    authed = "user" in st.session_state
+    if authed:
+        st.html(_BASE_CSS)
     else:
-        render_users_page()
+        # 登录/注册占据整个画幅：隐藏侧边栏
+        st.html(_BASE_CSS + _HIDE_SIDEBAR_CSS)
+    flash = st.session_state.pop("flash", None)
+    if flash:
+        st.toast(flash)
+    if not authed:
+        render_auth_page()
+        return
+    render_sidebar()
+    page = st.session_state.get("page", "problems")
+    if page == "problems":
+        render_problem_bank()
+    elif page == "manage":
+        render_manage_page()
+    elif page == "query":
+        render_query_page()
+    else:
+        render_profile_page()
 
 
 if __name__ == "__main__":
