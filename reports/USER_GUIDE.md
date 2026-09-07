@@ -1,0 +1,133 @@
+# OJ 系统使用说明（USER GUIDE）
+
+> 面向：验收演示、日常使用、报告附图。实现与契约详见 `PROJECT_REQUIREMENTS.md`；进度见 `WORK_PLAN.md`。
+> 适用版本：2026-09-07 起（基础 Step1–6 + AI 命题全部实现；后端 pytest 63/63）。
+
+---
+
+## 1. 系统架构
+
+前后端分离（官方 Step6 任务 4）：
+
+```
+frontend/  Streamlit（端口 8501，进程 A）
+     │  REST API + Session Cookie（{code, msg, data}）
+     ▼
+backend/   FastAPI（端口 8000，进程 B，全 JSON 存储于 backend/data/）
+```
+
+- 前端**不直连数据**，一切操作经 `/api/*`；登录态由后端 Session Cookie 维持。
+- 评测执行需要 Linux（python3 / g++）：后端与评测请在 **WSL2/Ubuntu** 中运行（venv `~/oj-venv`）。
+- Windows `.venv` 含 streamlit，可用于起前端；此时经 WSL2 localhost 转发访问后端。
+
+## 2. 启动步骤
+
+### 2.1 后端（WSL Ubuntu，端口 8000）
+
+```bash
+# 首次环境（仅一次）：
+wsl python3 -m venv ~/oj-venv
+wsl ~/oj-venv/bin/pip install fastapi "uvicorn[standard]" pydantic httpx pytest psutil bcrypt python-multipart
+
+# 启动：
+wsl -e bash -lc 'cd /mnt/e/程序/python/大作业-2/backend && ~/oj-venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000'
+```
+
+启动钩子自动：建数据目录、创建初始管理员 `admin / admintestpassword`、内置语言 python/cpp。
+
+### 2.2 前端（端口 8501）
+
+```bash
+cd /mnt/e/程序/python/大作业-2/frontend
+../.venv/Scripts/python.exe -m streamlit run app.py --server.port 8501
+```
+
+- 浏览器打开 http://localhost:8501。
+- 若前端与后端不在同一地址，设置环境变量 `OJ_BACKEND_URL`（默认 `http://127.0.0.1:8000`）。
+- 前端在 WSL venv 运行也可（需该 venv 另装 streamlit）。
+
+### 2.3 测试
+
+```bash
+wsl ~/oj-venv/bin/python -m pytest tests -q     # backend/ 目录下；63 passed
+```
+
+## 3. 账号与角色
+
+| 账号 | 说明 |
+|---|---|
+| `admin / admintestpassword` | 初始管理员（系统自动创建，user_id=0） |
+| 普通用户 | 左侧"注册"创建；登录后可见自己的信息/提交 |
+
+角色：`admin`（全部权限）/ `user` / `banned`（再登录 403，已登录会话**立即失效**）。
+重置环境：需以 **admin 登录后**调用 `POST /api/reset/`（清空用户/题目/提交/任务并重建 admin 与内置语言；AI 模型配置不清）。
+
+## 4. 功能走查
+
+### 4.1 用户
+- 注册（用户名 3–40、密码 ≥6）→ 登录 → 侧栏显示"退出登录"；
+- 用户页：个人信息（提交数/通过数）；**管理员**可见用户列表并可改角色（admin/user/banned）。
+
+### 4.2 题目
+- 列表 → 预览/详情（含 samples 与 **testcases**，登录即可见）；
+- 新增/编辑：全字段表单，samples/testcases 用 JSON 编辑（`[{ "input": "...", "output": "..." }]`）；
+- 删除：仅管理员（级联删除该题提交/审计并回退用户统计）。
+
+### 4.3 评测与提交
+- 提交：选题 + 选语言 + 代码 → 异步评测，秒级完成；
+- 结果：AC/WA/TLE/MLE/RE/CE；分数 = 通过测例数 × 10；编译/运行/错误信息在详情页；
+- 提交记录：普通用户仅看自己的；管理员可按 user/problem/status 筛选（分页）；
+- 重新评测（rejudge）：管理员触发（`PUT .../rejudge`）；
+- 限频：同一用户同一题 1 分钟内第 4 次提交返回 429。
+
+**评测日志可见性**（`GET /api/submissions/{id}/log`，助教 Q7）：
+
+| 场景 | 本人 | 其他登录用户 |
+|---|---|---|
+| 题目未公开（默认） | 可见 score/counts，**无 details** | 403 |
+| 题目 `public_cases=True` | 可见完整 details | 可见完整 details |
+| 管理员 | 始终完整 | 始终完整 |
+
+`public_cases` 开关：管理员调用 `PUT /api/problems/{id}/log_visibility`（body `{"public_cases": true}`）。审计查询 `GET /api/logs/access/`（仅管理员，需 user_id 或 problem_id 至少一个）。
+
+### 4.4 AI 智能命题（页面：AI 命题）
+1. **模型配置**（折叠面板，per-user）：provider_url（通常 `https://openrouter.ai/api/v1`）、model（需 OpenRouter 有明确计价）、api_key（自己 provider 的或 OpenRouter 分发的）；`input_price/output_price` 填模型**美元单价**（USD/1M tokens）；`fx_rate`（USD→CNY，默认 7.2，可当日按人民银行中间价更新）。**不填 key 时自动走本地 mock**（也可完整演示）。
+2. **命题输入**（二选一）：
+   - 结构化表单：**语言必选**（=已注册语言下拉）、考点多选（可自定义）、难度分、预期复杂度、数据规模、情景/备注；可选"站内参考题"；
+   - 纯文本：自然语言描述（可附站内题目链接、上传文本资料）；若指定未注册语言会被拒绝并提示可用语言。
+   - **硬核模式**：勾选后展开"对拍重试次数"（默认 2）；开启则本地执行三代码（生成器/标答/暴力）对拍校验，测试数据错误会回传 AI 重试，用尽标记"需人工复核"。
+3. **任务页**：轮询状态（等待/执行/完成/中断/失败），可"刷新"；Token 用量与**费用（CNY）**实时展示（计价依据见面板说明）；可中断运行中任务。
+4. **采纳**：命题完成 → "✏️ 采纳到题目编辑" → 自动跳转题目页并**预填**（samples + 全量 testcases，可人工修改）→ 保存后即可提交评测验证。
+5. **复核**：对拍用尽的题目不落库，任务显示"需人工复核 + 错误摘要"，可"以相同需求重试（新任务）"。
+
+## 5. 验收演示脚本（约 10 分钟，两通道）
+
+**通道 A：基础功能（管理员 + 普通用户）**
+1. 登录 admin → 注册 `alice` → 登录 alice；
+2. admin 建题 A+B（含样例与 5 个测试点，含负数/边界）；
+3. alice 提交正确 python → 等结果 → 详情显示 AC（全部测例 ×10）；
+4. alice 提交错误代码 → 0/部分分；提交死循环 → TLE；大内存分配 → MLE；
+5. alice 看自己的日志：题目未公开 → 只见分数、无 details；admin 打开 `log_visibility` → alice 可见完整 details；
+6. 越权演示：alice 访问他人详情/删除题目 → 403；admin 把 alice 设 banned → alice 再操作 403；
+7. `POST /api/reset/`（admin 登录）→ 环境复原。
+
+**通道 B：AI 命题（mock 即可演示；有 key 走真实）**
+1. 模型配置（mock：不填 key；或填真实 key + 模型 + 价格 + fx_rate）；
+2. 结构化表单：语言 python、考点"排序"、难度 6、**预期复杂度 O(n log n)**、数据规模 10^5、勾选**硬核模式**（重试 2）→ 生成；
+3. 任务完成展示测试点数与费用（CNY）→ 采纳预填 → 题目页保存；
+4. 提交 O(n log n) 代码 → AC；提交 O(n²) 暴力 → **中小点过 / 大点 TLE → 部分分**（演示测试数据区分复杂度）；
+5. （可选）纯文本输入含"用 Java 出题" → 被拒绝并提示可用语言。
+
+## 6. 常见注意（FAQ）
+
+- 评测错误提示不会泄露服务器路径；`error_info` 为空说明无评测级错误。
+- 429：同一人同一题 1 分钟超过 3 次提交；换题不触发。
+- 删除题目会使相关用户 submit/resolve_count 实时回退（按现存数据重算）。
+- rejudge 覆盖原提交重新评测，统计实时重算（Q6）。
+- reset 会清空用户/题目/提交/日志/任务并重建 admin 与内置语言；**不会清 AI 模型配置**。
+- 数据全部存 `backend/data/`（JSON 文件；已 gitignore，不入版本库）。
+
+## 7. 相关文档索引（reports/）
+
+`PROJECT_REQUIREMENTS.md`（需求与契约基准）· `WORK_PLAN.md`（进度）· `ai-alignment-notes.md`（AI 定案）·
+`ta-qa-pending.md`（与助教问答）· `d1–d6-implementation-notes.md`（各阶段实现说明）· `review-findings.md`（评审台账）· `report-assets.md`（报告素材）。
