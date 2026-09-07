@@ -1,0 +1,54 @@
+# OJ 前端主题（polish 2026-09-07）：简约风，紫色为主、黄色为辅，浅灰留白。
+[theme]
+base = "light"
+primaryColor = "#6D28D9"
+backgroundColor = "#FAFAF8"
+secondaryBackgroundColor = "#F4F1FA"
+textColor = "#26222E"
+linkColor = "#6D28D9"
+codeTextColor = "#26222E"
+codeBackgroundColor = "#F4F1FA"
+borderColor = "#E6E0F2"
+baseRadius = "10px"
+buttonRadius = "12px"
+showWidgetBorder = true
+
+# 徽章语义色（st.badge / :xxx-badge[...] 使用）
+violetColor = "#6D28D9"
+violetBackgroundColor = "#EDE6FB"
+violetTextColor = "#4C1D95"
+yellowColor = "#B45309"
+yellowBackgroundColor = "#FDF3D0"
+yellowTextColor = "#92400E"
+greenColor = "#15803D"
+greenBackgroundColor = "#DCFCE7"
+greenTextColor = "#166534"
+redColor = "#DC2626"
+redBackgroundColor = "#FEE2E2"
+redTextColor = "#991B1B"
+orangeColor = "#C2410C"
+orangeBackgroundColor = "#FFEDD5"
+orangeTextColor = "#9A3412"
+blueColor = "#1D4ED8"
+blueBackgroundColor = "#DBEAFE"
+blueTextColor = "#1E40AF"
+grayColor = "#6B7280"
+grayBackgroundColor = "#F3F4F6"
+grayTextColor = "#4B5563"
+
+font = "sans serif"
+baseFontSize = 15
+headingFontWeights = [700, 700, 600, 600, 600, 600]
+linkUnderline = false
+
+[theme.sidebar]
+backgroundColor = "#F7F4FC"
+secondaryBackgroundColor = "#EFE9F9"
+textColor = "#26222E"
+borderColor = "#E6E0F2"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true
