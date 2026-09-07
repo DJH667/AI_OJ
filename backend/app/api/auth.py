@@ -26,6 +26,15 @@ async def login(body: LoginBody, response: Response):
     )
 
 
+@router.get("/api/auth/me")
+async def me(current: dict = Depends(get_current_user)):
+    """当前登录用户（polish 2026-09-08：前端刷新后用浏览器 Cookie 恢复登录态时校验会话）。"""
+    return success(
+        msg="success",
+        data={"user_id": current["user_id"], "username": current["username"], "role": current["role"]},
+    )
+
+
 @router.post("/api/auth/logout")
 async def logout(request: Request, response: Response, user: dict = Depends(get_current_user)):
     sid = request.cookies.get(sessions.SESSION_COOKIE)

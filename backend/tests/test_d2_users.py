@@ -96,11 +96,17 @@ def test_login_ok_and_get_self(client):
     assert data == {"user_id": "1", "username": "alice", "role": "user"}
     # 会话 cookie 已下发
     assert any(k.startswith("oj_session") for k in client.cookies.keys())
+    # /api/auth/me：返回当前登录用户（polish 2026-09-08，前端刷新恢复登录态用）
+    r = client.get("/api/auth/me")
+    assert r.status_code == 200
+    assert r.json()["data"] == {"user_id": "1", "username": "alice", "role": "user"}
     # 本人可查详情，响应不含 password
     r = client.get("/api/users/1")
     assert r.status_code == 200
     assert r.json()["data"]["username"] == "alice"
     assert "password" not in r.json()["data"]
+    # 未登录访问 me → 401
+    assert TestClient(app).get("/api/auth/me").status_code == 401
 
 
 def test_login_wrong_credentials_401(client):
