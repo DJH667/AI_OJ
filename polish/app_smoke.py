@@ -10,11 +10,23 @@
 （users/smokeuser.json、submissions/ 中的记录、sessions/ 与 logs/access/ 中含 smokeuser 的文件）。
 """
 import httpx
+import importlib
+import sys
 from pathlib import Path
 from streamlit.testing.v1 import AppTest
 
 APP = str(Path(__file__).resolve().parent.parent / "frontend" / "app.py")
 USER, PASSWORD = "smokeuser", "secret123"
+
+# 判定徽章回归（fix 2026-09-07：status=success 但 0 分 ≠ 通过）
+sys.path.insert(0, str(Path(APP).parent))
+app_mod = importlib.import_module("app")
+assert app_mod._verdict({"status": "success", "score": 0, "counts": 20}) == "未通过"
+assert app_mod._verdict({"status": "success", "score": 10, "counts": 20}) == "部分通过"
+assert app_mod._verdict({"status": "success", "score": 20, "counts": 20}) == "通过"
+assert app_mod._verdict({"status": "pending", "score": 0, "counts": 0}) == "评测中"
+assert app_mod._verdict({"status": "error"}) == "错误"
+print("0. 判定徽章逻辑（0 分 ≠ 通过）OK")
 
 # 准备一次性用户（若已存在说明上次清理失败，直接复用）
 http = httpx.Client(base_url="http://127.0.0.1:8000", timeout=30)

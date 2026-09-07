@@ -34,13 +34,43 @@ NAV_ITEMS = [
 BANK_PAGE_SIZE = 10
 QUERY_PAGE_SIZE = 10
 RECENT_SUBMISSIONS = 3
-STATUS_TEXT = {"pending": "评测中", "success": "通过", "error": "错误"}
-STATUS_BADGE = {
-    "pending": ":orange-badge[评测中]",
-    "success": ":green-badge[通过]",
-    "error": ":red-badge[错误]",
-}
 ROLE_TEXT = {"admin": "管理员", "user": "普通用户", "banned": "已禁用"}
+
+
+def _verdict(s: dict) -> str:
+    """评测结论（区分 status=success 但非 AC 的情况）。
+
+    后端契约中 status=success 仅表示"评测完成"（api.md），0 分也是 success；
+    结论按 score/counts 判定：全对=通过、部分=部分通过、0 分=未通过。
+    """
+    status = s.get("status")
+    if status == "pending":
+        return "评测中"
+    if status == "error":
+        return "错误"
+    if status == "success":
+        score = s.get("score") or 0
+        counts = s.get("counts") or 0
+        if counts > 0 and score >= counts:
+            return "通过"
+        if score > 0:
+            return "部分通过"
+        return "未通过"
+    return str(status or "未知")
+
+
+_VERDICT_BADGE = {
+    "评测中": ":orange-badge[评测中]",
+    "错误": ":red-badge[错误]",
+    "通过": ":green-badge[通过]",
+    "部分通过": ":yellow-badge[部分通过]",
+    "未通过": ":red-badge[未通过]",
+}
+
+
+def _verdict_badge(s: dict) -> str:
+    verdict = _verdict(s)
+    return _VERDICT_BADGE.get(verdict, f":gray-badge[{verdict}]")
 
 # ============================== 全局样式 ==============================
 
@@ -473,7 +503,7 @@ def _render_recent_submissions(pid: str) -> None:
 
 def _render_submission_row(s: dict) -> None:
     status = s.get("status", "")
-    badge = STATUS_BADGE.get(status, f":gray-badge[{status or '未知'}]")
+    badge = _verdict_badge(s)
     if status == "success":
         score = f"{s.get('score', 0)}/{s.get('counts', 0)}"
     else:
@@ -594,10 +624,9 @@ def _fetch_query_results(client, me: dict, problem_choice: str, scope: str, user
 
 
 def _render_query_row(s: dict, title_by_id: dict, client, me: dict) -> None:
-    status = s.get("status", "")
-    status_text = STATUS_TEXT.get(status, status or "未知")
+    status_text = _verdict(s)
     title = title_by_id.get(s.get("problem_id"), s.get("problem_id") or "未知题目")
-    if status == "success":
+    if s.get("status") == "success":
         score = f"{s.get('score', 0)}/{s.get('counts', 0)}"
     else:
         score = "—"
@@ -617,7 +646,7 @@ def show_detail_and_log(client, sid: str, me: dict) -> None:
             _err(exc)
         return
     status = detail.get("status")
-    st.markdown(f"{STATUS_BADGE.get(status, status)} · "
+    st.markdown(f"{_verdict_badge(detail)} · "
                 f"score={detail.get('score')}/{detail.get('counts')}")
     with st.expander("代码", expanded=False):
         st.code(detail.get("code") or "", language="python")
