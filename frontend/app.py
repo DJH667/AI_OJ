@@ -116,6 +116,29 @@ def _fmt_time(created_at: str) -> str:
     iso = created_at.replace("T", " ")
     return f"{iso[5:10]} {iso[11:16]}" if len(iso) >= 16 else iso
 
+
+# 难度标签（与后端方案 D 先验映射一致：入门 1.0 … NOI 10.0）
+DIFFICULTY_OPTIONS = ["入门", "普及-", "普及", "普及+", "提高", "提高+", "省选", "NOI"]
+DIFFICULTY_LABEL_PRIOR = {"入门": 1.0, "普及-": 2.0, "普及": 3.0, "普及+": 4.0,
+                          "提高": 5.5, "提高+": 7.0, "省选": 8.5, "NOI": 10.0}
+DIFFICULTY_CUSTOM = "其他（自定义）"
+
+
+def _nearest_difficulty(score) -> str:
+    """把 0–10 难度分映射到最近的难度标签（AI 产出预填时用）。"""
+    try:
+        s = float(score)
+    except (TypeError, ValueError):
+        return "入门"
+    return min(DIFFICULTY_LABEL_PRIOR, key=lambda k: abs(DIFFICULTY_LABEL_PRIOR[k] - s))
+
+
+def _clear_form_state(prefix: str | None = None) -> None:
+    """清理出题表单的控件状态（防止跨题目/跨会话串值）。"""
+    for k in list(st.session_state.keys()):
+        if k.startswith("pf_") and (prefix is None or k.startswith(prefix)):
+            st.session_state.pop(k, None)
+
 # ============================== 全局样式 ==============================
 
 _BASE_CSS = """
@@ -254,8 +277,10 @@ def _dump(obj) -> str:
 def _reset_sub_state() -> None:
     """切换一级页面时清理所有二级页面状态（题库页码除外）。"""
     for key in ("view_problem_id", "submit_open", "manage_action", "ai_open",
-                "query_problem_id", "query_rows", "query_page", "query_detail_sid"):
+                "query_problem_id", "query_rows", "query_page", "query_detail_sid",
+                "prefill_problem", "prefill_score"):
         st.session_state.pop(key, None)
+    _clear_form_state()
 
 
 def _goto(page: str) -> None:
@@ -839,10 +864,16 @@ def render_problem_form_page(edit_id: str | None) -> None:
     if st.button(":material/arrow_back: 返回题目管理", key="back_manage"):
         st.session_state.pop("manage_action", None)
         st.session_state.pop("prefill_problem", None)
+        st.session_state.pop("prefill_score", None)
+        _clear_form_state()
         st.rerun()
 
     prefill = st.session_state.pop("prefill_problem", None)
+    if prefill is not None and prefill.get("difficulty_score") is not None:
+        # AI 产出预填：保留难度分作先验提示，随表单保存提交（不回显）
+        st.session_state["prefill_score"] = float(prefill["difficulty_score"])
     if edit_id:
+        st.session_state.pop("prefill_score", None)  # 编辑以服务端数据为准
         client = get_client()
         try:
             prefill = client.get(f"/api/problems/{edit_id}")
@@ -850,7 +881,7 @@ def render_problem_form_page(edit_id: str | None) -> None:
             _err(exc)
             st.warning("题目可能已被删除，请返回题目管理。")
             return
-    body = _problem_form_body(prefill, lock_id=bool(edit_id))
+    body = _problem_form_body(prefill, edit_id)
     if body is None:
         return
     client = get_client()
@@ -866,37 +897,70 @@ def render_problem_form_page(edit_id: str | None) -> None:
         _err(exc)
         return
     st.session_state.pop("manage_action", None)
+    st.session_state.pop("prefill_score", None)
+    _clear_form_state()
     st.rerun()
 
 
-def _problem_form_body(prefill: dict | None = None, lock_id: bool = False) -> dict | None:
+def _problem_form_body(prefill: dict | None = None, edit_id: str | None = None) -> dict | None:
     p = prefill or {}
+    pfx = f"pf_{edit_id}" if edit_id else "pf_new"
+    score_hint = st.session_state.get("prefill_score") if not edit_id else None
+
+    # 难度：选择题（8 档 + 自定义），默认 = 当前值 / AI 难度分最近档 / 入门
+    current_diff = str(p.get("difficulty") or "")
+    if current_diff and current_diff not in DIFFICULTY_OPTIONS:
+        diff_options = DIFFICULTY_OPTIONS + [DIFFICULTY_CUSTOM, current_diff]
+    else:
+        diff_options = DIFFICULTY_OPTIONS + [DIFFICULTY_CUSTOM]
+    if current_diff:
+        diff_default = current_diff
+    elif score_hint is not None:
+        diff_default = _nearest_difficulty(score_hint)
+    else:
+        diff_default = "入门"
+    diff_index = diff_options.index(diff_default)
+
     with st.form("problem_form", border=False):
         c = st.columns([1, 2, 1])
-        pid = c[0].text_input("编号 id *", value=p.get("id", ""), disabled=lock_id,
-                              help="题目唯一编号（编辑时不可修改）")
-        title = c[1].text_input("标题 title *", value=p.get("title", ""))
-        difficulty = c[2].text_input("难度（标签）", value=p.get("difficulty", ""))
-        description = st.text_area("题目描述 description *", value=p.get("description", ""), height=120)
+        pid = c[0].text_input("编号 id *", value=p.get("id", ""), disabled=bool(edit_id),
+                              help="题目唯一编号（编辑时不可修改）", key=f"{pfx}_id")
+        title = c[1].text_input("标题 title *", value=p.get("title", ""), key=f"{pfx}_title")
+        difficulty_choice = c[2].selectbox(
+            "难度 *", diff_options, index=diff_index, key=f"{pfx}_difficulty",
+            help="难度标签对接方案 D 先验映射（入门 1.0 … NOI 10.0）")
+        if difficulty_choice == DIFFICULTY_CUSTOM:
+            difficulty = st.text_input("自定义难度标签",
+                                       value="" if current_diff in DIFFICULTY_OPTIONS else current_diff,
+                                       key=f"{pfx}_difficulty_custom")
+        else:
+            difficulty = difficulty_choice
+        description = st.text_area("题目描述 description *", value=p.get("description", ""),
+                                   height=120, key=f"{pfx}_desc")
         c2 = st.columns(2)
-        input_desc = c2[0].text_area("输入格式 input_description *", value=p.get("input_description", ""), height=70)
-        output_desc = c2[1].text_area("输出格式 output_description *", value=p.get("output_description", ""), height=70)
+        input_desc = c2[0].text_area("输入格式 input_description *", value=p.get("input_description", ""),
+                                     height=70, key=f"{pfx}_in")
+        output_desc = c2[1].text_area("输出格式 output_description *", value=p.get("output_description", ""),
+                                      height=70, key=f"{pfx}_out")
         constraints = st.text_area("数据范围与约束 constraints *（数据范围/限制）",
-                                   value=p.get("constraints", ""), height=50)
+                                   value=p.get("constraints", ""), height=50, key=f"{pfx}_constraints")
         c3 = st.columns(4)
         # polish：time_limit 步进 0.5s、memory_limit 步进 128MB，加减号已用 CSS 放大
         time_limit = c3[0].number_input("时限 time_limit（秒）", min_value=0.5,
-                                        value=float(p.get("time_limit", 1.0)), step=0.5, format="%.1f")
+                                        value=float(p.get("time_limit", 1.0)), step=0.5, format="%.1f",
+                                        key=f"{pfx}_time")
         memory_limit = c3[1].number_input("内存 memory_limit（MB）", min_value=128,
-                                          value=int(p.get("memory_limit", 128)), step=128)
-        source = c3[2].text_input("来源 source", value=p.get("source", ""))
-        author = c3[3].text_input("作者 author", value=p.get("author", ""))
-        hint = st.text_input("提示 hint（可选）", value=p.get("hint", ""))
-        tags = st.text_input("标签 tags（逗号分隔）", value=",".join(p.get("tags", [])))
+                                          value=int(p.get("memory_limit", 128)), step=128,
+                                          key=f"{pfx}_memory")
+        source = c3[2].text_input("来源 source", value=p.get("source", ""), key=f"{pfx}_source")
+        author = c3[3].text_input("作者 author", value=p.get("author", ""), key=f"{pfx}_author")
+        hint = st.text_input("提示 hint（可选）", value=p.get("hint", ""), key=f"{pfx}_hint")
+        tags = st.text_input("标签 tags（逗号分隔）", value=",".join(p.get("tags", [])),
+                             key=f"{pfx}_tags")
         samples_text = st.text_area("样例 samples（JSON 数组 [{input,output}]）",
-                                    value=_dump(p.get("samples", [])), height=120)
+                                    value=_dump(p.get("samples", [])), height=120, key=f"{pfx}_samples")
         testcases_text = st.text_area("测试点 testcases（JSON 数组 [{input,output}]）",
-                                      value=_dump(p.get("testcases", [])), height=220)
+                                      value=_dump(p.get("testcases", [])), height=220, key=f"{pfx}_testcases")
         submitted = st.form_submit_button("保存题目", type="primary", width="stretch")
     if not submitted:
         return None
@@ -914,6 +978,9 @@ def _problem_form_body(prefill: dict | None = None, lock_id: bool = False) -> di
         "time_limit": float(time_limit), "memory_limit": int(memory_limit),
         "hint": hint, "source": source, "author": author, "difficulty": difficulty,
     }
+    if score_hint is not None:
+        # 方案 D 先验提示：AI 难度分随表单提交（后端仅作私有先验，不回传）
+        body["difficulty_score"] = score_hint
     if tags.strip():
         body["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
     return body
@@ -1101,6 +1168,7 @@ def render_task_progress(task_id: str) -> None:
         st.success(f"命题完成：{result.get('title', '')}（语言 {result.get('language', '')}，"
                    f"测试点 {len(result.get('testcases', []))} 个）")
         if st.button("✏️ 采纳到题目编辑（预填）", type="primary"):
+            _clear_form_state("pf_new_")  # AI 预填覆盖旧草稿
             st.session_state["prefill_problem"] = result
             st.session_state["manage_action"] = "new"
             st.session_state.pop("ai_open", None)

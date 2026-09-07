@@ -110,12 +110,15 @@ assert "edit_P1000" in btns and "del_P1000" in btns, btns
 assert "new_problem" in btns and "open_ai" in btns, btns
 print("7. 题目管理（搜索 + 编辑/删除图标 + 新增/AI 入口）OK")
 
-# 新增题目表单（time_limit/memory_limit 步进）
+# 新增题目表单（time_limit/memory_limit 步进 + 难度选择）
 at.button(key="new_problem").click().run()
 assert not at.exception, at.exception
 numbers = {w.label for w in at.number_input}
 assert "时限 time_limit（秒）" in numbers and "内存 memory_limit（MB）" in numbers, numbers
-print("8. 出题表单（时限/内存输入）OK")
+diffs = [w for w in at.selectbox if w.label == "难度 *"]
+assert diffs and diffs[0].value == "入门", [d.value for d in diffs]
+assert app_mod._nearest_difficulty(7.0) == "提高+" and app_mod._nearest_difficulty(2.3) == "普及-"
+print("8. 出题表单（时限/内存输入 + 难度下拉默认入门）OK")
 
 # 返回 → 编辑已有题目（预填 + 编号锁定）
 at.button(key="back_manage").click().run()
@@ -127,7 +130,9 @@ titles = [w.value for w in at.text_input if w.label == "标题 title *"]
 assert titles and titles[0] == "Hello, World!", titles
 locked = [w for w in at.text_input if w.label == "编号 id *"]
 assert locked and locked[0].disabled, "编辑时编号应锁定"
-print("8b. 编辑题目表单（预填 + 编号锁定）OK")
+diffs = [w for w in at.selectbox if w.label == "难度 *"]
+assert diffs and diffs[0].value == "入门", [d.value for d in diffs]
+print("8b. 编辑题目表单（预填 + 编号锁定 + 难度预选）OK")
 
 # 返回管理页 → 个人页
 at.button(key="back_manage").click().run()
