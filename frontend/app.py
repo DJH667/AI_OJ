@@ -67,10 +67,54 @@ _VERDICT_BADGE = {
     "未通过": ":red-badge[未通过]",
 }
 
+# 测试点级结论（Step5 日志可见时才可得；CE 还可在提交详情经 compile_info 辨识）
+CASE_BADGE = {
+    "AC": ":green-badge[AC]", "WA": ":red-badge[WA]", "TLE": ":orange-badge[TLE]",
+    "MLE": ":orange-badge[MLE]", "RE": ":orange-badge[RE]", "CE": ":red-badge[CE]",
+    "UNK": ":gray-badge[UNK]",
+}
+
+
+def _case_composition(details: list) -> str:
+    """测点结果构成，如 'AC x2 · TLE x1 · WA x1'。"""
+    counts: dict[str, int] = {}
+    for d in details:
+        v = str(d.get("result", "UNK"))
+        counts[v] = counts.get(v, 0) + 1
+    return " · ".join(f"{CASE_BADGE.get(v, v)} x{n}" for v, n in counts.items())
+
+
+def _error_badge(client, sid: str) -> str:
+    """error 行细分：编译错误（CE，compile_info 存在）vs 评测错误。
+
+    列表契约只回 status，编译信息需拉取详情；error 行稀少，代价可接受。
+    """
+    try:
+        detail = client.get(f"/api/submissions/{sid}")
+    except ApiClientError:
+        return _VERDICT_BADGE["错误"]
+    ci = detail.get("compile_info")
+    if ci and str(ci.get("result", "")) == "compile error":
+        return ":red-badge[编译错误]"
+    return ":red-badge[评测错误]"
+
 
 def _verdict_badge(s: dict) -> str:
     verdict = _verdict(s)
     return _VERDICT_BADGE.get(verdict, f":gray-badge[{verdict}]")
+
+
+# 提交记录行列对齐：同一比例列宽保证各行的 状态/得分/语言/时间 纵向对齐
+RECENT_COL_SPEC = [1.5, 1.0, 1.1, 1.6]
+QUERY_COL_SPEC = [1.2, 2.4, 0.9, 1.0, 1.5, 0.8]
+
+
+def _fmt_time(created_at: str) -> str:
+    """提交时间缩写为 MM-DD HH:MM，便于列对齐展示。"""
+    if not created_at:
+        return "—"
+    iso = created_at.replace("T", " ")
+    return f"{iso[5:10]} {iso[11:16]}" if len(iso) >= 16 else iso
 
 # ============================== 全局样式 ==============================
 
@@ -210,7 +254,7 @@ def _dump(obj) -> str:
 def _reset_sub_state() -> None:
     """切换一级页面时清理所有二级页面状态（题库页码除外）。"""
     for key in ("view_problem_id", "submit_open", "manage_action", "ai_open",
-                "query_problem_id", "query_rows", "query_page"):
+                "query_problem_id", "query_rows", "query_page", "query_detail_sid"):
         st.session_state.pop(key, None)
 
 
@@ -497,18 +541,23 @@ def _render_recent_submissions(pid: str) -> None:
     if not items:
         st.caption("暂无提交记录，来做第一个提交的人吧！")
         return
+    header = st.columns(RECENT_COL_SPEC, vertical_alignment="center")
+    for col, label in zip(header, ("状态", "得分", "语言", "时间")):
+        col.caption(label)
     for s in items:
         _render_submission_row(s)
 
 
 def _render_submission_row(s: dict) -> None:
+    """近 3 次提交行：状态/得分/语言/时间 四列纵向对齐。"""
     status = s.get("status", "")
-    badge = _verdict_badge(s)
-    if status == "success":
-        score = f"{s.get('score', 0)}/{s.get('counts', 0)}"
-    else:
-        score = "—"
-    st.markdown(f"{badge} {score} · `{s.get('language', '')}` · {s.get('created_at', '')}")
+    score = f"{s.get('score', 0)}/{s.get('counts', 0)}" if status == "success" else "—"
+    badge = _error_badge(get_client(), s.get("submission_id", "")) if status == "error" else _verdict_badge(s)
+    cols = st.columns(RECENT_COL_SPEC, vertical_alignment="center")
+    cols[0].markdown(badge)
+    cols[1].markdown(score)
+    cols[2].markdown(s.get("language", ""))
+    cols[3].markdown(_fmt_time(s.get("created_at", "")))
 
 
 # ============================== 查询提交记录 ==============================
@@ -573,6 +622,10 @@ def render_query_page() -> None:
     page_num = max(1, min(page_num, total_pages))
     st.session_state["query_page"] = page_num
     start = (page_num - 1) * QUERY_PAGE_SIZE
+
+    header = st.columns(QUERY_COL_SPEC, vertical_alignment="center")
+    for col, label in zip(header, ("状态", "题目", "语言", "得分", "时间", "详情")):
+        col.caption(label)
     for s in rows[start:start + QUERY_PAGE_SIZE]:
         _render_query_row(s, title_by_id, client, me)
 
@@ -624,16 +677,26 @@ def _fetch_query_results(client, me: dict, problem_choice: str, scope: str, user
 
 
 def _render_query_row(s: dict, title_by_id: dict, client, me: dict) -> None:
-    status_text = _verdict(s)
+    """查询页行：状态/题目/语言/得分/时间 列对齐 + 行内详情按钮切换。"""
+    sid = s.get("submission_id", "")
     title = title_by_id.get(s.get("problem_id"), s.get("problem_id") or "未知题目")
-    if s.get("status") == "success":
-        score = f"{s.get('score', 0)}/{s.get('counts', 0)}"
-    else:
-        score = "—"
-    label = (f"{status_text} · {title} · {s.get('language', '')} · 得分 {score} · "
-             f"{s.get('created_at', '')}")
-    with st.expander(label, icon=":material/receipt_long:"):
-        show_detail_and_log(client, s.get("submission_id", ""), me)
+    score = f"{s.get('score', 0)}/{s.get('counts', 0)}" if s.get("status") == "success" else "—"
+    open_now = st.session_state.get("query_detail_sid") == sid
+    cols = st.columns(QUERY_COL_SPEC, vertical_alignment="center")
+    cols[0].markdown(_error_badge(client, sid) if s.get("status") == "error" else _verdict_badge(s))
+    cols[1].markdown(title)
+    cols[2].markdown(f"`{s.get('language', '')}`")
+    cols[3].markdown(score)
+    cols[4].markdown(_fmt_time(s.get("created_at", "")))
+    if cols[5].button("收起" if open_now else "详情", key=f"query_detail_{sid}", width="stretch"):
+        if open_now:
+            st.session_state.pop("query_detail_sid", None)
+        else:
+            st.session_state["query_detail_sid"] = sid
+        st.rerun()
+    if open_now:
+        with st.container(border=True):
+            show_detail_and_log(client, sid, me)
 
 
 def show_detail_and_log(client, sid: str, me: dict) -> None:
@@ -646,7 +709,12 @@ def show_detail_and_log(client, sid: str, me: dict) -> None:
             _err(exc)
         return
     status = detail.get("status")
-    st.markdown(f"{_verdict_badge(detail)} · "
+    badge = _verdict_badge(detail)
+    if status == "error":
+        ci = detail.get("compile_info")
+        badge = (":red-badge[编译错误]" if ci and str(ci.get("result", "")) == "compile error"
+                 else ":red-badge[评测错误]")
+    st.markdown(f"{badge} · "
                 f"score={detail.get('score')}/{detail.get('counts')}")
     with st.expander("代码", expanded=False):
         st.code(detail.get("code") or "", language="python")
@@ -661,6 +729,7 @@ def show_detail_and_log(client, sid: str, me: dict) -> None:
         details = log.get("details", [])
         if details:
             st.markdown("**测试点日志**（本人/管理员或题目公开）")
+            st.markdown(_case_composition(details))
             st.table([[d.get("id"), d.get("result"), d.get("time"), d.get("memory")] for d in details])
         else:
             st.caption("无测试点明细（可能未公开、本人未公开题目、或该提交无日志）")

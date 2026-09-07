@@ -26,7 +26,10 @@ assert app_mod._verdict({"status": "success", "score": 10, "counts": 20}) == "�
 assert app_mod._verdict({"status": "success", "score": 20, "counts": 20}) == "通过"
 assert app_mod._verdict({"status": "pending", "score": 0, "counts": 0}) == "评测中"
 assert app_mod._verdict({"status": "error"}) == "错误"
-print("0. 判定徽章逻辑（0 分 ≠ 通过）OK")
+assert app_mod._fmt_time("2026-09-07T18:56:04") == "09-07 18:56"
+comp = app_mod._case_composition([{"result": "AC"}, {"result": "TLE"}, {"result": "TLE"}])
+assert "AC] x1" in comp and "TLE] x2" in comp, comp
+print("0. 判定徽章逻辑（0 分 ≠ 通过）与时间/测点构成格式 OK")
 
 # 准备一次性用户（若已存在说明上次清理失败，直接复用）
 http = httpx.Client(base_url="http://127.0.0.1:8000", timeout=30)
@@ -89,7 +92,14 @@ assert not at.exception, at.exception
 assert at.session_state["page"] == "query"
 at.button(key="run_query").click().run()
 assert not at.exception, at.exception
-print("6. 查询页（按题预选 + 查询）OK")
+caps = [c.value for c in at.caption]
+for label in ("状态", "题目", "语言", "得分", "时间"):
+    assert label in caps, f"查询页表头缺失 {label}: {caps}"
+detail_btns = [b.key for b in at.button if b.key.startswith("query_detail_")]
+assert detail_btns, "查询行详情按钮缺失"
+at.button(key=detail_btns[0]).click().run()
+assert not at.exception, at.exception
+print("6. 查询页（列对齐表头 + 按题预选 + 详情按钮切换）OK")
 
 # 题目管理
 at.button(key="nav_manage").click().run()
