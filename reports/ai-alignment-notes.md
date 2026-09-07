@@ -24,6 +24,8 @@
 4. **对拍引擎**（仅硬核；三代码用所选语言）：数据生成器 → 多档规模数据（小/中/大，规模按期望复杂度推导，使 O(N²) 类在中小点可过、大点 TLE → 部分分梯度）→ 标答算 expected → 小规模点用暴力对照验证 → 通过采纳；不一致/异常 → 错误摘要传回 AI 重试（≤retry_limit）→ 用尽：任务 completed + **needs_review** + 错误摘要（题目不入库）。
    - 引擎兼容**所有已注册语言**：自 judge 抽取语言无关编译/运行原语（services/runner.py）共用；本地执行限时/限内存。
 5. **落库内容**：题目采纳 = 题目字段 + `samples`（展示小样例）+ **`testcases` 全量（对拍通过/普通生成的完整测点，含大数据文本）** + 私有 `difficulty_score`/`ai_meta`；needs_review 题不落库。重试反馈只含错误摘要（不塞失败样例）。
+6. **计费币种 CNY**（2026-09-07 用户判定）：`input_price`/`output_price` 为所选模型在 OpenRouter 的**美元单价**（USD / price_unit tokens）；费用按 `fx_rate`（USD→CNY）折算为 CNY 展示。`fx_rate` 默认 7.2（2026-09 参考中国人民银行人民币汇率中间价），**用户在配置页可按当日更新**；不做外部行情自动拉取（验收环境网络不保证，故采用"可手动当日更新 + 说明依据"）。
+7. **model-config per-user**（同判定）：每个登录用户**自行配置自己的** provider/model/api_key 与计价（无需管理员）；存 `data/ai_configs/{username}.json`（reset 不清、用户间互不影响）；api_key 存储脱敏、不回显。
 
 ## 3. 恢复后的排期（WORK_PLAN 同步）
 

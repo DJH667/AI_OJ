@@ -20,7 +20,7 @@ ACCESS_LOGS_DIR = LOGS_DIR / "access"       # 日志访问审计
 ROLE_CHANGES_DIR = LOGS_DIR / "role_changes"  # 权限变更操作日志（Step4）
 SESSIONS_DIR = DATA_DIR / "sessions"        # 服务端 session（D2 使用）
 AI_TASKS_DIR = DATA_DIR / "ai_tasks"        # AI 命题任务（测试数据，reset 清空）
-AI_CONFIG_FILE = DATA_DIR / "ai_config.json"  # AI 模型配置（系统配置，reset 不清）
+AI_CONFIGS_DIR = DATA_DIR / "ai_configs"    # AI 模型配置（per-user，系统配置，reset 不清）
 
 # 版本库内的示例题（开发联调用，不自动导入；运行时题目库在 PROBLEMS_DIR）
 SAMPLE_PROBLEMS_DIR = BASE_DIR / "sample_problems"

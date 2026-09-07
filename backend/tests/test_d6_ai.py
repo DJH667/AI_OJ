@@ -21,11 +21,15 @@ PASSWORD = "secret123"
 
 
 @pytest.fixture(autouse=True)
-def _clean_ai_config():
-    """model-config 是系统配置（reset 不清），测试前后清空，保证各用例走 mock。"""
-    ai_config.save({})
+def _clean_ai_configs():
+    """model-config 是 per-user 系统配置（reset 不清），测试前后清空全部用户配置，保证走 mock。"""
+    from app.db import store as _store
+
+    for key in _store.list_keys(config.AI_CONFIGS_DIR):
+        _store.delete_json(config.AI_CONFIGS_DIR, key)
     yield
-    ai_config.save({})
+    for key in _store.list_keys(config.AI_CONFIGS_DIR):
+        _store.delete_json(config.AI_CONFIGS_DIR, key)
 
 GEN = "import json\ncases = [{'input': '1 2', 'small': True}, {'input': '-5 3', 'small': True}, {'input': '0 0', 'small': True}]\nprint(json.dumps(cases))"
 STD = "a, b = map(int, input().split())\nprint(a + b)"
@@ -78,20 +82,22 @@ def _wait_task(c, task_id, timeout=15.0):
 
 def test_model_config_roundtrip_hides_key(client):
     body = {"provider_url": "https://openrouter.ai/api/v1", "model": "deepseek/deepseek-chat",
-            "api_key": "sk-secret-123", "input_price": 0.5, "output_price": 1.5, "price_unit": 1000000}
+            "api_key": "sk-secret-123", "input_price": 0.5, "output_price": 1.5, "price_unit": 1000000,
+            "fx_rate": 7.2}
     r = client.put("/api/ai/model-config", json=body)
     assert r.status_code == 200
     data = r.json()["data"]
     assert data["api_key_configured"] is True
     assert "api_key" not in data and "sk-secret" not in r.text
     assert data["model"] == "deepseek/deepseek-chat"
+    assert data["currency"] == "CNY" and data["fx_rate"] == 7.2
     # GET 同样脱敏
     data = client.get("/api/ai/model-config").json()["data"]
     assert data["api_key_configured"] is True and "api_key" not in data
     # 未登录 401
     anon = TestClient(app)
     assert anon.get("/api/ai/model-config").status_code == 401
-    # reset 不清 model-config（系统配置）
+    # reset 不清 model-config（per-user 系统配置，admin 的仍保留）
     client.post("/api/reset/")
     assert client.post("/api/auth/login", json={"username": config.ADMIN_USERNAME, "password": config.ADMIN_PASSWORD}).status_code == 200
     assert client.get("/api/ai/model-config").json()["data"]["api_key_configured"] is True
@@ -100,7 +106,7 @@ def test_model_config_roundtrip_hides_key(client):
 # ---------- 普通任务（mock）----------
 
 def test_task_flow_normal_mock(client, monkeypatch):
-    monkeypatch.setattr(llm_client, "chat", lambda messages, temperature=0.2: {
+    monkeypatch.setattr(llm_client, "chat", lambda messages, username, temperature=0.2: {
         "content": json.dumps(_fake_problem()), "usage": {"prompt_tokens": 100, "completion_tokens": 30}, "mock": True})
     r = client.post("/api/ai/problem-tasks/", json={"requirement": "一道求和题"})
     assert r.status_code == 200
@@ -109,7 +115,7 @@ def test_task_flow_normal_mock(client, monkeypatch):
     assert data["status"] == "completed"
     assert data["result"]["id"] == "AI-SUM"
     assert data["usage"]["input_tokens"] == 100 and data["usage"]["cost"] >= 0
-    assert data["usage"]["currency"] == "USD"
+    assert data["usage"]["currency"] == "CNY"
     # 语言结构化校验：未注册语言 400
     assert client.post("/api/ai/problem-tasks/", json={"requirement": "x", "language": "java"}).status_code == 400
     # 参考题不存在 404
@@ -122,7 +128,7 @@ def test_task_flow_normal_mock(client, monkeypatch):
 # ---------- 硬核：对拍通过 ----------
 
 def test_task_hardcore_verify_passes(client, monkeypatch):
-    monkeypatch.setattr(llm_client, "chat", lambda messages, temperature=0.2: {
+    monkeypatch.setattr(llm_client, "chat", lambda messages, username, temperature=0.2: {
         "content": json.dumps(_fake_problem()), "usage": {"prompt_tokens": 200, "completion_tokens": 60}, "mock": True})
     r = client.post("/api/ai/problem-tasks/", json={"requirement": "a+b 题", "hardcore": True, "retry_limit": 1})
     task_id = r.json()["data"]["task_id"]
@@ -139,7 +145,7 @@ def test_task_hardcore_verify_passes(client, monkeypatch):
 def test_task_hardcore_review_when_verify_fails(client, monkeypatch):
     bad = _fake_problem()
     bad["meta"] = {"note": "no codes"}  # 缺 generator/std/brute → verify 必失败
-    monkeypatch.setattr(llm_client, "chat", lambda messages, temperature=0.2: {
+    monkeypatch.setattr(llm_client, "chat", lambda messages, username, temperature=0.2: {
         "content": json.dumps(bad), "usage": {"prompt_tokens": 50, "completion_tokens": 10}, "mock": True})
     r = client.post("/api/ai/problem-tasks/", json={"requirement": "x", "hardcore": True, "retry_limit": 1})
     task_id = r.json()["data"]["task_id"]
@@ -155,7 +161,7 @@ def test_task_hardcore_review_when_verify_fails(client, monkeypatch):
 
 def test_task_language_not_supported_fails(client, monkeypatch):
     p = _fake_problem(language="java")  # 结构化未带 language → 走产出兜底校验
-    monkeypatch.setattr(llm_client, "chat", lambda messages, temperature=0.2: {
+    monkeypatch.setattr(llm_client, "chat", lambda messages, username, temperature=0.2: {
         "content": json.dumps(p), "usage": {"prompt_tokens": 30, "completion_tokens": 5}, "mock": True})
     r = client.post("/api/ai/problem-tasks/", json={"requirement": "x"})
     task_id = r.json()["data"]["task_id"]
@@ -185,9 +191,11 @@ def test_task_permissions_and_cancel(client):
     bob = _login("bob")
     assert bob.get(f"/api/ai/problem-tasks/{tid}").status_code == 403
     assert bob.put(f"/api/ai/problem-tasks/{tid}/cancel").status_code == 403
-    # model-config 为全局配置：普通用户 403（评审 P2 定案 require_admin）
-    assert bob.put("/api/ai/model-config", json={"provider_url": "x", "model": "y", "api_key": "k"}).status_code == 403
-    assert bob.get("/api/ai/model-config").status_code == 403
+    # model-config per-user（用户判定 2026-09-07）：普通用户可配置自己的模型/key（非全局管理员）
+    assert bob.put("/api/ai/model-config", json={"provider_url": "x", "model": "y", "api_key": "k"}).status_code == 200
+    assert bob.get("/api/ai/model-config").json()["data"]["api_key_configured"] is True
+    # 隔离：bob 配置不影响 admin（admin 未配置自己的）
+    assert client.get("/api/ai/model-config").json()["data"]["api_key_configured"] is False
 
 
 def test_model_config_minimal_request_ok(client):
@@ -206,7 +214,7 @@ def test_task_normal_cancel_effective(client, monkeypatch):
     """P1（评审 9.7）：普通任务在运行中被 cancel → 最终 interrupted（不被 completed 覆盖）。"""
     import time as _t
 
-    def _slow_chat(messages, temperature=0.2):
+    def _slow_chat(messages, username, temperature=0.2):
         _t.sleep(0.6)
         return {"content": json.dumps(_fake_problem()), "usage": {"prompt_tokens": 10, "completion_tokens": 5}, "mock": True}
 

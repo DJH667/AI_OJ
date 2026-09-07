@@ -88,6 +88,7 @@ def run_task(task_id: str) -> None:
     task = ai_tasks.get(task_id)
     if task is None:
         return
+    username = task.get("username") or "admin"
     if _guard_interrupted(task_id):
         return
     ai_tasks.set_status(task, ai_tasks.STATUS_RUNNING, "正在处理命题需求")
@@ -100,7 +101,7 @@ def run_task(task_id: str) -> None:
         if t is None:
             return
         t.update(fields)
-        t["usage"] = ai_config.estimate_cost(usage_acc)
+        t["usage"] = ai_config.estimate_cost(usage_acc, username)
         ai_tasks.save(t)
         ai_tasks.set_status(t, status, progress)
 
@@ -122,7 +123,7 @@ def run_task(task_id: str) -> None:
         while True:
             if _guard_interrupted(task_id):
                 return
-            resp = llm_client.chat(messages)
+            resp = llm_client.chat(messages, username)
             usage_acc["prompt_tokens"] += int(resp["usage"].get("prompt_tokens", 0))
             usage_acc["completion_tokens"] += int(resp["usage"].get("completion_tokens", 0))
             if _guard_interrupted(task_id):  # chat 返回后先查中断，不再被 RUNNING/终态覆盖

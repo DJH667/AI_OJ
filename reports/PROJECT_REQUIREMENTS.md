@@ -212,6 +212,8 @@
 17. **纯文本语言拒绝**（同）：prompt 指令 + 后端兜底校验（language ∉ 已注册 → 失败提示）。
 18. **AI 私有 ai_meta**（同）：语言/生成器/标答/暴力代码/重试次数存题目私有键，不进任何对外 API（与 difficulty_score 同级）。
 19. **AI 落库 testcases 全量**（同）：采纳题目含 samples（展示）+ testcases 全量（对外契约字段）+ 私有键。
+20. **model-config per-user**（用户判定 2026-09-07）：每个登录用户自行配置自己的 provider/model/api_key（无需管理员），存 `ai_configs/{username}`、reset 不清。
+21. **计费 CNY**（同）：input/output 单价按 OpenRouter 美元价录入，费用 = token/单位×单价(USD)×fx_rate 以 CNY 展示；fx_rate 默认 7.2（参考人民银行中间价，2026-09），用户可按当日更新。
 
 **假设（未获用户否定前按此推进）：**
 4. **环境**：Windows 上开发，WSL2 + Ubuntu 做评测测试（Ubuntu 尚未安装，列入环境搭建首日）。

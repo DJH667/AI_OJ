@@ -208,17 +208,17 @@ def render_task_progress(task_id: str) -> None:
 
 def _render_model_config() -> None:
     client = get_client()
-    if st.session_state.get("user", {}).get("role") != "admin":
-        st.caption("仅管理员可配置（全局共享 + 密钥）。")
-        return
+    st.caption("配置仅用于你自己的命题任务（per-user）；provider_url 通常为 OpenRouter，model 需在其上有明确计价。")
     with st.form("ai_cfg_form"):
         provider = st.text_input("provider_url", "https://openrouter.ai/api/v1")
         model = st.text_input("model", "deepseek/deepseek-chat")
         key = st.text_input("api_key", type="password")
         c = st.columns(3)
-        inp = c[0].number_input("input_price(每1M token)", min_value=0.0, value=0.0, format="%.4f")
-        out = c[1].number_input("output_price(每1M token)", min_value=0.0, value=0.0, format="%.4f")
+        inp = c[0].number_input("input_price（USD / 每 unit token）", min_value=0.0, value=0.0, format="%.4f")
+        out = c[1].number_input("output_price（USD / 每 unit token）", min_value=0.0, value=0.0, format="%.4f")
         unit = c[2].number_input("price_unit", min_value=1, value=1_000_000, step=100000)
+        fx = st.number_input("fx_rate（USD→CNY，请按当日汇率更新）", min_value=0.1, value=7.2, format="%.4f",
+                             help="默认 7.2 为 2026-09 参考值；以中国人民银行公布的人民币汇率中间价为准，当日可更新。")
         if st.form_submit_button("保存配置"):
             if not (provider and model and key):
                 st.error("provider_url / model / api_key 必填（无 key 时走本地 mock）")
@@ -226,11 +226,12 @@ def _render_model_config() -> None:
                 try:
                     data = client.put("/api/ai/model-config", json={
                         "provider_url": provider, "model": model, "api_key": key,
-                        "input_price": inp, "output_price": out, "price_unit": int(unit),
+                        "input_price": inp, "output_price": out, "price_unit": int(unit), "fx_rate": fx,
                     })
-                    st.success(f"已保存：{data.get('model')}（api_key 已配置）")
+                    st.success(f"已保存：{data.get('model')}（api_key 已配置，币种 {data.get('currency')}）")
                 except ApiClientError as exc:
                     _err(exc)
+    st.caption("计价说明：模型单价取自 OpenRouter 模型页（USD/1M tokens）；费用 = token 数/单位 × 单价(USD) × fx_rate，以 CNY 展示。")
 
 
 def render_placeholder(name: str) -> None:

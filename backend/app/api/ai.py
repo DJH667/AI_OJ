@@ -11,7 +11,7 @@ import threading
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.api.deps import get_current_user, require_admin
+from app.api.deps import get_current_user
 from app.core import messages
 from app.core.exceptions import ApiError
 from app.core.response import success
@@ -27,18 +27,19 @@ class ModelConfigBody(BaseModel):
     input_price: float | None = Field(default=None, ge=0)
     output_price: float | None = Field(default=None, ge=0)
     price_unit: int | None = Field(default=None, ge=1)
+    fx_rate: float | None = Field(default=None, gt=0)  # USD→CNY 汇率（当日可更新）
 
 
 @router.put("/api/ai/model-config")
-async def update_model_config(body: ModelConfigBody, admin: dict = Depends(require_admin)):
-    # P2 定案（评审 9.7）：全局共享配置 + 密钥，仅管理员可改/查
-    data = ai_config.update(body.model_dump())
+async def update_model_config(body: ModelConfigBody, current: dict = Depends(get_current_user)):
+    # per-user（用户判定 2026-09-07）：每个用户配置自己的 provider/model/key，无需管理员
+    data = ai_config.update(current["username"], body.model_dump())
     return success(msg="model config updated", data=data)
 
 
 @router.get("/api/ai/model-config")
-async def get_model_config(admin: dict = Depends(require_admin)):
-    return success(msg="success", data=ai_config.to_public())
+async def get_model_config(current: dict = Depends(get_current_user)):
+    return success(msg="success", data=ai_config.to_public(current["username"]))
 
 
 class TaskBody(BaseModel):

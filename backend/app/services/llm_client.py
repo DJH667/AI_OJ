@@ -44,9 +44,9 @@ def _mock_content() -> str:
     })
 
 
-def chat(messages: list[dict], temperature: float = 0.2) -> dict:
-    """调用模型，返回 {"content": str, "usage": {...}, "mock": bool}。"""
-    cfg = ai_config.get_raw()
+def chat(messages: list[dict], username: str, temperature: float = 0.2) -> dict:
+    """调用该用户配置的模型，返回 {"content", "usage", "mock"}；未配置 key 走本地 mock。"""
+    cfg = ai_config.get_raw(username)
     if not cfg.get("api_key"):
         return {"content": _mock_content(), "usage": dict(MOCK_USAGE), "mock": True}
     # P3 容错（评审 9.7）：半截配置（缺 url/model）转 LLMError 而非 KeyError
