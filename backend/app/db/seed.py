@@ -40,3 +40,5 @@ def ensure_demo_problems() -> None:
         data = problem_service.load_sample(name)
         if problem_service.get(data.get("id")) is None:
             problem_service.save_internal(data)
+            # 方案 D：种入即按难度标签初始化先验难度分
+            problem_service.refresh_difficulty(data.get("id"))

@@ -30,7 +30,11 @@ class Case(BaseModel):
 
 
 class ProblemIn(BaseModel):
-    """POST/PUT /api/problems/ 请求体（对外契约，不含 difficulty_score）。"""
+    """POST/PUT /api/problems/ 请求体（对外契约，不含 difficulty_score 回传）。
+
+    polish 2026-09-07（方案 D）：可选接收 difficulty_score（0–10）作为难度先验提示
+    （AI 产出预填），仅用于服务端私有难度计算，**任何响应不回传**。
+    """
 
     id: str
     title: str
@@ -48,11 +52,78 @@ class ProblemIn(BaseModel):
     memory_limit: Optional[int] = Field(default=None, gt=0)
     author: Optional[str] = None
     difficulty: Optional[str] = None
+    # 私有先验提示（不回传；契约测试已验证响应不含该字段）
+    difficulty_score: Optional[float] = Field(default=None, ge=0, le=10)
 
 
 # GET 详情缺失可选字段的类型默认值
 STR_DEFAULTS = {"hint": "", "source": "", "author": "", "difficulty": ""}
 NUMERIC_DEFAULTS = {"time_limit": 3.0, "memory_limit": 128}
+
+# ---- difficulty_score 方案 D（polish 2026-09-07，用户拍板）：先验 + 通过率后验加权 ----
+# 先验来源优先级：difficulty_prior（存留）> 出题/AI 给出的 difficulty_score > 难度标签映射 > 默认 5.0；
+# 后验 = 10 × (1 − 通过率)；α = PRIOR_HALF_LIFE / (PRIOR_HALF_LIFE + 提交数)，提交越多越收敛到后验。
+DIFFICULTY_LABEL_PRIOR = {
+    "入门": 1.0, "普及-": 2.0, "普及": 3.0, "普及+": 4.0,
+    "提高": 5.5, "提高+": 7.0, "省选": 8.5, "NOI": 10.0,
+}
+DEFAULT_DIFFICULTY_PRIOR = 5.0
+PRIOR_HALF_LIFE = 2  # 提交数达到该值时先验权重降至 1/2
+
+
+def _clamp_score(value: float) -> float:
+    return round(min(10.0, max(0.0, float(value))), 2)
+
+
+def _label_prior(data: dict) -> float:
+    label = (data.get("difficulty") or "").strip()
+    return DIFFICULTY_LABEL_PRIOR.get(label, DEFAULT_DIFFICULTY_PRIOR)
+
+
+def difficulty_stats(problem_id: str) -> tuple[int, int]:
+    """该题 (总提交数, AC 提交数)。"""
+    from app.services import submissions as submission_service
+
+    total = ac = 0
+    if config.SUBMISSIONS_DIR.exists():
+        for _, rec in store.iter_all(config.SUBMISSIONS_DIR):
+            if rec.get("problem_id") != problem_id:
+                continue
+            total += 1
+            if submission_service.is_ac(rec):
+                ac += 1
+    return total, ac
+
+
+def refresh_difficulty(problem_id: str) -> None:
+    """方案 D：先验 + 通过率后验加权，写回私有键 difficulty_prior/difficulty_score。
+
+    score = α·prior + (1−α)·posterior，其中 posterior = 10 × (1 − 通过率)、
+    α = PRIOR_HALF_LIFE / (PRIOR_HALF_LIFE + 总提交数)；无提交时 score = prior。
+    幂等；评测完成 / 题目 CRUD / 种子导入后调用。
+    """
+    data = get(problem_id)
+    if data is None:
+        return
+    prior = data.get("difficulty_prior")
+    if prior is None:
+        prior = data.get("difficulty_score")
+    if prior is None:
+        prior = _label_prior(data)
+    try:
+        prior = _clamp_score(float(prior))
+    except (TypeError, ValueError):
+        prior = _clamp_score(_label_prior(data))
+    total, ac = difficulty_stats(problem_id)
+    if total:
+        posterior = 10.0 * (1.0 - ac / total)
+        alpha = PRIOR_HALF_LIFE / (PRIOR_HALF_LIFE + total)
+        score = alpha * prior + (1.0 - alpha) * posterior
+    else:
+        score = prior
+    data["difficulty_prior"] = prior
+    data["difficulty_score"] = _clamp_score(score)
+    save(problem_id, data)
 
 
 def _to_storage(problem: ProblemIn) -> dict:
@@ -77,6 +148,8 @@ def create(problem: ProblemIn) -> dict:
     if get(problem.id) is not None:
         raise ApiError(409, PROBLEM_ALREADY_EXISTS)
     save(problem.id, _to_storage(problem))
+    # 方案 D：新建即按先验（难度标签/AI 提示）初始化难度分
+    refresh_difficulty(problem.id)
     return {"id": problem.id}
 
 
@@ -87,11 +160,15 @@ def update(problem_id: str, problem: ProblemIn) -> dict:
     if existing is None:
         raise ApiError(404, PROBLEM_NOT_FOUND)
     data = _to_storage(problem)
-    # 保留服务端私有键（public_cases 日志开关、difficulty_score AI 参考分）——CRUD 覆盖不应丢失
-    for private in ("public_cases", "difficulty_score"):
-        if private in existing:
+    # 保留服务端私有键（public_cases 日志开关、difficulty_score/difficulty_prior 难度分）——CRUD 覆盖不应丢失
+    for private in ("public_cases", "difficulty_score", "difficulty_prior"):
+        if private in existing and private not in data:
             data[private] = existing[private]
+    if problem.difficulty_score is not None:
+        # 新的先验提示覆盖旧存留（refresh 将据此重算）
+        data.pop("difficulty_prior", None)
     save(problem_id, data)
+    refresh_difficulty(problem_id)
     return {"id": problem_id}
 
 

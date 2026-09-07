@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from main import app
 from app import config
 from app.db import store
+from app.services import problems as problem_service
 from app.services import submissions as sub_service
 
 PASSWORD = "secret123"
@@ -144,6 +145,43 @@ def test_list_summaries_pass_rate(client):
     _mk("error", 0)
     data = client.get("/api/problems/").json()["data"]
     assert data[0]["pass_rate"] == pytest.approx(1 / 3, abs=1e-4)
+
+
+def test_difficulty_scheme_d_label_prior_and_posterior(client):
+    # 方案 D（polish 2026-09-07 用户拍板）：先验 + 通过率后验加权
+    # 无提交 → score = 先验（难度标签"入门" → 1.0）
+    assert client.post("/api/problems/", json=_pb("P1", difficulty="入门")).status_code == 200
+    stored = store.load_json(config.PROBLEMS_DIR, "P1")
+    assert stored["difficulty_prior"] == 1.0
+    assert stored["difficulty_score"] == 1.0
+    # 4 条提交：1 AC + 3 WA → 通过率 0.25，后验 7.5；n=4，α=2/6=1/3 → 1/3·1 + 2/3·7.5 = 5.333…
+    admin = store.load_json(config.USERS_DIR, config.ADMIN_USERNAME)
+    for score in (10, 0, 0, 0):
+        rec = sub_service.new_pending(admin, "P1", "python", "code")
+        rec.update(status="success", score=score, counts=10)
+        store.save_json(config.SUBMISSIONS_DIR, rec["submission_id"], rec)
+    problem_service.refresh_difficulty("P1")
+    stored = store.load_json(config.PROBLEMS_DIR, "P1")
+    assert stored["difficulty_prior"] == 1.0
+    assert stored["difficulty_score"] == pytest.approx(1 / 3 * 1.0 + 2 / 3 * 7.5, abs=1e-2)
+    # 私有字段不回传
+    assert "difficulty_score" not in client.get("/api/problems/P1").json()["data"]
+
+
+def test_difficulty_scheme_d_hint_prior_and_override(client):
+    # 出题/AI 给出的 difficulty_score 作为先验提示（不回传）
+    assert client.post("/api/problems/", json=_pb("P2", difficulty_score=7.0)).status_code == 200
+    stored = store.load_json(config.PROBLEMS_DIR, "P2")
+    assert stored["difficulty_prior"] == 7.0
+    assert stored["difficulty_score"] == 7.0
+    # 编辑时给出新提示 → 覆盖旧先验；不给出 → 保留旧先验
+    body = _pb("P2", title="改名", difficulty_score=2.0)
+    assert client.put("/api/problems/P2", json=body).status_code == 200
+    assert store.load_json(config.PROBLEMS_DIR, "P2")["difficulty_prior"] == 2.0
+    assert client.put("/api/problems/P2", json=_pb("P2", title="再改名")).status_code == 200
+    assert store.load_json(config.PROBLEMS_DIR, "P2")["difficulty_prior"] == 2.0
+    # 越界提示 → 422 转 400
+    assert client.post("/api/problems/", json=_pb("P3", difficulty_score=11.0)).status_code == 400
 
 
 def test_cascade_delete_rolls_back_user_stats(client):

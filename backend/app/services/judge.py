@@ -99,3 +99,5 @@ def judge_submission(submission_id: str) -> None:
     submissions.save(record)
     # Q6（2026-09-05）：评测完成（含 rejudge）后实时重算该用户统计
     submissions.recompute_stats(record.get("username", ""))
+    # 方案 D（polish 2026-09-07）：评测完成后实时刷新题目难度分（先验 + 通过率后验）
+    problems.refresh_difficulty(record.get("problem_id", ""))
