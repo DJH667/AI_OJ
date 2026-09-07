@@ -54,9 +54,10 @@ def update(body: dict) -> dict:
         "provider_url": body["provider_url"].rstrip("/"),
         "model": body["model"],
         "api_key": body["api_key"],
-        "input_price": float(body.get("input_price", 0.0)),
-        "output_price": float(body.get("output_price", 0.0)),
-        "price_unit": int(body.get("price_unit", DEFAULT_PRICE_UNIT)),
+        # P1 修复（评审 9.7）：可选计价字段缺省 None 时用默认（`or` 兜底），最小配置不 500
+        "input_price": float(body.get("input_price") or 0.0),
+        "output_price": float(body.get("output_price") or 0.0),
+        "price_unit": int(body.get("price_unit") or DEFAULT_PRICE_UNIT),
     }
     save(cfg)
     return to_public()

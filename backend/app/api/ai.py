@@ -11,7 +11,7 @@ import threading
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_admin
 from app.core import messages
 from app.core.exceptions import ApiError
 from app.core.response import success
@@ -30,13 +30,14 @@ class ModelConfigBody(BaseModel):
 
 
 @router.put("/api/ai/model-config")
-async def update_model_config(body: ModelConfigBody, current: dict = Depends(get_current_user)):
+async def update_model_config(body: ModelConfigBody, admin: dict = Depends(require_admin)):
+    # P2 定案（评审 9.7）：全局共享配置 + 密钥，仅管理员可改/查
     data = ai_config.update(body.model_dump())
     return success(msg="model config updated", data=data)
 
 
 @router.get("/api/ai/model-config")
-async def get_model_config(current: dict = Depends(get_current_user)):
+async def get_model_config(admin: dict = Depends(require_admin)):
     return success(msg="success", data=ai_config.to_public())
 
 

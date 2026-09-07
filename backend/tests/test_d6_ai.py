@@ -185,3 +185,41 @@ def test_task_permissions_and_cancel(client):
     bob = _login("bob")
     assert bob.get(f"/api/ai/problem-tasks/{tid}").status_code == 403
     assert bob.put(f"/api/ai/problem-tasks/{tid}/cancel").status_code == 403
+    # model-config 为全局配置：普通用户 403（评审 P2 定案 require_admin）
+    assert bob.put("/api/ai/model-config", json={"provider_url": "x", "model": "y", "api_key": "k"}).status_code == 403
+    assert bob.get("/api/ai/model-config").status_code == 403
+
+
+def test_model_config_minimal_request_ok(client):
+    """P1（评审 9.7）：只传必填三字段的最小配置不 500。"""
+    r = client.put("/api/ai/model-config", json={
+        "provider_url": "https://openrouter.ai/api/v1", "model": "m", "api_key": "k",
+    })
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["input_price"] == 0.0 and data["output_price"] == 0.0
+    assert data["price_unit"] == 1_000_000
+    assert data["api_key_configured"] is True
+
+
+def test_task_normal_cancel_effective(client, monkeypatch):
+    """P1（评审 9.7）：普通任务在运行中被 cancel → 最终 interrupted（不被 completed 覆盖）。"""
+    import time as _t
+
+    def _slow_chat(messages, temperature=0.2):
+        _t.sleep(0.6)
+        return {"content": json.dumps(_fake_problem()), "usage": {"prompt_tokens": 10, "completion_tokens": 5}, "mock": True}
+
+    monkeypatch.setattr(llm_client, "chat", _slow_chat)
+    r = client.post("/api/ai/problem-tasks/", json={"requirement": "慢速任务"})
+    tid = r.json()["data"]["task_id"]
+    _t.sleep(0.2)  # 任务已在 running（chat 中）
+    r = client.put(f"/api/ai/problem-tasks/{tid}/cancel")
+    assert r.status_code == 200
+    deadline = _t.monotonic() + 10
+    while _t.monotonic() < deadline:
+        data = client.get(f"/api/ai/problem-tasks/{tid}").json()["data"]
+        if data["status"] in ("interrupted", "completed", "failed"):
+            break
+        _t.sleep(0.05)
+    assert data["status"] == "interrupted"  # 不被 completed 覆盖

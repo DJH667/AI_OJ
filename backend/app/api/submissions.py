@@ -57,8 +57,9 @@ async def create_submission(body: SubmissionBody, current: dict = Depends(get_cu
     record = submissions.new_pending(current, body.problem_id, body.language, body.code)
     submissions.save(record)
 
-    # 用户统计（submit_count/resolve_count）由评测完成后的 recompute_stats 实时维护（Q6），
-    # 此处不做增量，避免与评测线程读-改-写竞态。
+    # 提交即计入统计（P3 评审 9.7）：POST 后立即重算一次，评测完成时再重算（幂等、最终一致）
+    submissions.recompute_stats(current["username"])
+
     asyncio.create_task(_judge_serial(record["submission_id"]))
 
     return success(msg="success", data={"submission_id": record["submission_id"], "status": "pending"})

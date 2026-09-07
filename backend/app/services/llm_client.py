@@ -49,8 +49,13 @@ def chat(messages: list[dict], temperature: float = 0.2) -> dict:
     cfg = ai_config.get_raw()
     if not cfg.get("api_key"):
         return {"content": _mock_content(), "usage": dict(MOCK_USAGE), "mock": True}
-    url = f"{cfg['provider_url']}/chat/completions"
-    payload = {"model": cfg["model"], "messages": messages, "temperature": temperature}
+    # P3 容错（评审 9.7）：半截配置（缺 url/model）转 LLMError 而非 KeyError
+    provider_url = cfg.get("provider_url")
+    model = cfg.get("model")
+    if not provider_url or not model:
+        raise LLMError("model config incomplete: provider_url and model required")
+    url = f"{provider_url}/chat/completions"
+    payload = {"model": model, "messages": messages, "temperature": temperature}
     headers = {"Authorization": f"Bearer {cfg['api_key']}"}
     try:
         resp = httpx.post(url, json=payload, headers=headers, timeout=120.0)

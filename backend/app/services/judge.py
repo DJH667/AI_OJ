@@ -16,7 +16,6 @@ from app.services import languages, problems, runner, submissions
 
 DEFAULT_TIMEOUT = 3.0
 DEFAULT_MEMORY_MB = 128.0
-ACCEPTED_VERDICTS = ("AC", "WA", "TLE", "MLE", "RE", "CE", "UNK")
 
 
 class _JudgeError(Exception):
@@ -88,9 +87,11 @@ def judge_submission(submission_id: str) -> None:
             error_info="",
         )
     except _JudgeError as exc:
-        record.update(status="error", error_info=str(exc), details=[])
+        record.update(status="error", error_info=str(exc), details=[], score=0, counts=0,
+                      compile_info=None, run_info=None)  # P3 兜底清零（评审 9.7）
     except Exception:
-        record.update(status="error", error_info=messages.JUDGE_FAILED, details=[])
+        record.update(status="error", error_info=messages.JUDGE_FAILED, details=[], score=0, counts=0,
+                      compile_info=None, run_info=None)
     finally:
         if workdir is not None:
             shutil.rmtree(workdir, ignore_errors=True)
