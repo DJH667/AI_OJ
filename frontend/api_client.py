@@ -11,6 +11,9 @@ import streamlit as st
 
 DEFAULT_BASE = os.environ.get("OJ_BACKEND_URL", "http://127.0.0.1:8000")
 
+# 与后端 services/sessions.py 的 SESSION_COOKIE 保持一致
+SESSION_COOKIE = "oj_session"
+
 
 class ApiClientError(Exception):
     """后端返回非 2xx 或 code != HTTP 状态码时的业务错误。"""
@@ -22,6 +25,15 @@ class ApiClient:
         self._http = httpx.Client(base_url=self.base, timeout=60.0)
 
     # ---- 会话 ----
+    @property
+    def session_id(self) -> str | None:
+        """后端会话 id（Cookie jar 中），用于浏览器 Cookie 持久化。"""
+        return self._http.cookies.get(SESSION_COOKIE)
+
+    def set_session_id(self, sid: str) -> None:
+        """把浏览器 Cookie 里的会话 id 种回 Cookie jar（刷新后恢复登录态）。"""
+        self._http.cookies.set(SESSION_COOKIE, sid, path="/")
+
     def login(self, username: str, password: str) -> dict:
         return self._request("POST", "/api/auth/login", json={"username": username, "password": password})
 

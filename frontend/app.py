@@ -15,7 +15,7 @@ import math
 
 import streamlit as st
 
-from api_client import ApiClientError, get_client
+from api_client import ApiClientError, SESSION_COOKIE, get_client
 
 TAG_OPTIONS = [
     "模拟", "枚举", "贪心", "二分", "双指针", "排序", "数学", "数论", "动态规划",
@@ -395,7 +395,59 @@ def _logout() -> None:
     for key in list(st.session_state.keys()):
         st.session_state.pop(key)
     st.session_state["flash"] = "已退出登录"
+    st.session_state["clear_session_cookie"] = True  # 下次渲染时清除浏览器 Cookie
     st.rerun()
+
+
+# ============================== 会话持久化（浏览器 Cookie） ==============================
+
+_SESSION_COOKIE_TTL = 7 * 24 * 3600  # 与后端 SESSION_TTL（7 天）一致
+
+
+def _restore_session() -> bool:
+    """浏览器刷新后：用浏览器 Cookie 里的后端会话 id 恢复登录态。
+
+    身份仍然以后端会话为准（经 GET /api/auth/me 校验），Cookie 只存 uuid4 会话 id；
+    会话失效（401）时标记清除浏览器 Cookie。
+    """
+    try:
+        sid = st.context.cookies.get(SESSION_COOKIE)
+    except Exception:
+        sid = None
+    # 防御：AppTest/异常上下文可能返回非字符串（如 MagicMock），只接受真实会话 id
+    if not isinstance(sid, str) or not sid:
+        return False
+    client = get_client()
+    client.set_session_id(sid)
+    try:
+        data = client.get("/api/auth/me")
+    except ApiClientError as exc:
+        if str(exc).startswith("401"):
+            st.session_state["clear_session_cookie"] = True
+        return False
+    st.session_state["user"] = data
+    return True
+
+
+def _persist_browser_session() -> None:
+    """把后端会话 id 写入浏览器 Cookie（1.63 的 st.context.cookies 只读，用 JS 写入）。
+
+    幂等：每次渲染写入同值；AppTest/无浏览器上下文时不会执行 JS，无副作用。
+    """
+    sid = get_client().session_id
+    if not sid:
+        return
+    st.html(
+        f"<script>document.cookie='{SESSION_COOKIE}={sid}; path=/; max-age={_SESSION_COOKIE_TTL}; SameSite=Lax';</script>",
+        unsafe_allow_javascript=True,
+    )
+
+
+def _clear_browser_session() -> None:
+    st.html(
+        f"<script>document.cookie='{SESSION_COOKIE}=; path=/; max-age=0';</script>",
+        unsafe_allow_javascript=True,
+    )
 
 
 # ============================== 题库 ==============================
@@ -1359,11 +1411,16 @@ def _render_model_config() -> None:
 def main() -> None:
     st.set_page_config(page_title="OJ 评测系统", page_icon=":material/rocket_launch:", layout="wide")
     authed = "user" in st.session_state
+    if not authed:
+        authed = _restore_session()  # 刷新后从浏览器 Cookie 恢复登录态
     if authed:
         st.html(_BASE_CSS)
+        _persist_browser_session()
     else:
         # 登录/注册占据整个画幅：隐藏侧边栏
         st.html(_BASE_CSS + _HIDE_SIDEBAR_CSS)
+        if st.session_state.pop("clear_session_cookie", False):
+            _clear_browser_session()
     flash = st.session_state.pop("flash", None)
     if flash:
         st.toast(flash)
