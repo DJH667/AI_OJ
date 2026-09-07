@@ -24,6 +24,7 @@ uploads/
 .coverage
 htmlcov/
 *.log
+*.pid
 .mypy_cache/
 .ruff_cache/
 

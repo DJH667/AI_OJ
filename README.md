@@ -5,7 +5,7 @@
 ## 一键启动（Windows）
 
 双击 **`start.cmd`**：WSL 起后端（:8000）→ 前端 Streamlit（:8501）→ 自动打开浏览器。
-停止：`stop.cmd`（或关闭 OJ-Backend 窗口）。详细使用见 `reports/USER_GUIDE.md`。
+停止后端：`stop.cmd`（后端为后台进程，无独立窗口）。详细使用见 `reports/USER_GUIDE.md`。
 
 ## 目录结构
 
