@@ -105,12 +105,23 @@ def list_records(
 
 
 def summary(record: dict) -> dict:
-    """列表条目（api.md：pending/error 只需 submission_id+status；其余含 score/counts）。"""
-    if record.get("status") in ("pending", "error"):
-        return {"submission_id": record["submission_id"], "status": record["status"]}
-    return {
+    """列表条目（api.md：pending/error 只需 submission_id+status；其余含 score/counts）。
+
+    polish 2026-09-07（用户拍板）：契约字段原样保留，另附展示字段
+    problem_id/language/created_at/username，供前端查询页直接渲染。
+    """
+    base = {
         "submission_id": record["submission_id"],
         "status": record["status"],
+        "problem_id": record.get("problem_id", ""),
+        "language": record.get("language", ""),
+        "created_at": record.get("created_at", ""),
+        "username": record.get("username", ""),
+    }
+    if record.get("status") in ("pending", "error"):
+        return base
+    return {
+        **base,
         "score": record.get("score", 0),
         "counts": record.get("counts", 0),
     }

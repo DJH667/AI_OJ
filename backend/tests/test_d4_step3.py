@@ -142,9 +142,11 @@ def test_list_filters_and_pagination(client):
     assert data["total"] == 3
     ids = [x["submission_id"] for x in data["submissions"]]
     assert ids == sorted(ids, reverse=True)
-    # pending 条目仅 id+status；success 条目含 score/counts
+    # pending 条目至少含 id+status；success 条目含 score/counts
+    # （polish 2026-09-07：摘要附加 problem_id/language/created_at/username 展示字段，契约键保留）
     pend = [x for x in data["submissions"] if x["status"] == "pending"]
-    assert len(pend) == 1 and set(pend[0].keys()) == {"submission_id", "status"}
+    assert len(pend) == 1 and {"submission_id", "status"} <= set(pend[0].keys())
+    assert all(k in pend[0] for k in ("problem_id", "language", "created_at", "username"))
     ok = [x for x in data["submissions"] if x["status"] == "success"]
     assert ok and all({"submission_id", "status", "score", "counts"} <= set(x.keys()) for x in ok)
     # 组合与 status 过滤（user_id 为数字 ID，如 alice=1、bob=2）

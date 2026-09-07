@@ -16,7 +16,7 @@ router = APIRouter()
 
 @router.get("/api/problems/")
 async def list_problems(current: dict = Depends(get_current_user)):
-    items = [problem_service.summary(data) for data in problem_service.get_all()]
+    items = problem_service.list_summaries()
     return success(msg="success", data=items)
 
 

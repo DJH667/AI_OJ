@@ -43,10 +43,10 @@ def test_add_list_get_defaults(client):
     r = client.post("/api/problems/", json=_pb("P1"))
     assert r.status_code == 200
     assert r.json() == {"code": 200, "msg": "add success", "data": {"id": "P1"}}
-    # 列表
+    # 列表（polish 2026-09-07：契约字段 id/title + 附加展示字段 difficulty/tags/pass_rate）
     r = client.get("/api/problems/")
     assert r.status_code == 200
-    assert r.json()["data"] == [{"id": "P1", "title": "求和"}]
+    assert r.json()["data"] == [{"id": "P1", "title": "求和", "difficulty": "", "tags": [], "pass_rate": 0.0}]
     # 详情：可选字段默认
     r = client.get("/api/problems/P1")
     assert r.status_code == 200
@@ -119,6 +119,31 @@ def test_private_difficulty_score_not_in_api(client):
     assert "difficulty_score" not in data
     # 列表也不含
     assert "difficulty_score" not in str(client.get("/api/problems/").json()["data"])
+
+
+def test_list_summaries_pass_rate(client):
+    # polish 2026-09-07：列表附加 difficulty/tags/pass_rate（契约字段 id/title 保留）
+    body = _pb("P1", difficulty="入门", tags=["模拟"], time_limit=1.0)
+    assert client.post("/api/problems/", json=body).status_code == 200
+    data = client.get("/api/problems/").json()["data"]
+    assert data == [{"id": "P1", "title": "求和", "difficulty": "入门", "tags": ["模拟"], "pass_rate": 0.0}]
+    # 无提交 → 0.0；1 AC + 1 WA → 0.5
+    admin = store.load_json(config.USERS_DIR, config.ADMIN_USERNAME)
+
+    def _mk(status, score):
+        rec = sub_service.new_pending(admin, "P1", "python", "code")
+        rec.update(status=status, score=score, counts=10)
+        store.save_json(config.SUBMISSIONS_DIR, rec["submission_id"], rec)
+
+    assert client.get("/api/problems/").json()["data"][0]["pass_rate"] == 0.0
+    _mk("success", 10)  # AC
+    _mk("success", 0)   # WA
+    data = client.get("/api/problems/").json()["data"]
+    assert data[0]["pass_rate"] == 0.5
+    # error/pending 不计 AC，但仍计入分母
+    _mk("error", 0)
+    data = client.get("/api/problems/").json()["data"]
+    assert data[0]["pass_rate"] == pytest.approx(1 / 3, abs=1e-4)
 
 
 def test_cascade_delete_rolls_back_user_stats(client):

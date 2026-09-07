@@ -130,8 +130,41 @@ def to_public(data: dict) -> dict:
 
 
 def summary(data: dict) -> dict:
-    """列表条目：{id, title}。"""
+    """列表条目：{id, title}（api.md 契约字段，polish 后保留不变）。"""
     return {"id": data["id"], "title": data.get("title", "")}
+
+
+def list_summaries() -> list[dict]:
+    """列表视图（polish 2026-09-07，用户拍板）：契约字段 id/title 原样保留，
+    另附展示字段 difficulty/tags/pass_rate。
+
+    pass_rate = 该题 AC 提交数 / 该题总提交数，[0,1] 区间、保留 4 位小数；无提交记 0.0。
+    """
+    from app.services import submissions as submission_service
+
+    total_by_pid: dict[str, int] = {}
+    ac_by_pid: dict[str, int] = {}
+    if config.SUBMISSIONS_DIR.exists():
+        for _, rec in store.iter_all(config.SUBMISSIONS_DIR):
+            pid = rec.get("problem_id")
+            if not pid:
+                continue
+            total_by_pid[pid] = total_by_pid.get(pid, 0) + 1
+            if submission_service.is_ac(rec):
+                ac_by_pid[pid] = ac_by_pid.get(pid, 0) + 1
+
+    items = []
+    for data in get_all():
+        pid = str(data["id"])
+        total = total_by_pid.get(pid, 0)
+        ac = ac_by_pid.get(pid, 0)
+        items.append({
+            **summary(data),
+            "difficulty": data.get("difficulty", ""),
+            "tags": data.get("tags", []),
+            "pass_rate": round(ac / total, 4) if total else 0.0,
+        })
+    return items
 
 
 def delete_cascade(problem_id: str) -> None:
