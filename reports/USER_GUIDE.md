@@ -54,7 +54,7 @@ wsl ~/oj-venv/bin/python -m pytest tests -q     # backend/ 目录下；63 passed
 
 ### 2.4 一键启动（推荐）
 
-仓库根双击或运行 **`start.cmd`**：自动在 WSL 起后端（新窗口 "OJ-Backend"，:8000）→ 等待就绪 → 起前端（Streamlit :8501）并打开浏览器。退出前端后，运行 **`stop.cmd`**（或关闭 OJ-Backend 窗口）停止后端。
+仓库根双击或运行 **`start.cmd`**：自动在 WSL 起后端（:8000，日志 backend.log）→ 等待就绪 → 起前端（Streamlit :8501）并自动打开浏览器。退出前端后，运行 **`stop.cmd`** 停止后端（后端为后台进程，无独立窗口）。
 > 依赖：WSL2 + `~/oj-venv`（见 2.1）与 Windows `.venv`（含 streamlit，见 2.2）。
 
 ## 3. 账号与角色
