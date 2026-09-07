@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-09-07 · 新增部分评审（对应 `comments/2026-09-07-review-a981671.md`）
+
+| # | 级别 | 问题 | 建议 | 状态 |
+|---|---|---|---|---|
+| 1 | P1 | `PUT /api/ai/model-config` 省略可选计价字段（input_price 等）→ `float(None)` 500 | `float(body.get("input_price") or 0.0)` 等 + 最小请求测试 | 待处理 |
+| 2 | P1 | AI 普通任务 cancel 不生效：cancel 后最终 status 变回 completed（状态被 RUNNING 覆盖） | `chat()` 返回后先查 `cancel_requested`；interrupted 一旦置位不再被覆盖 | 待处理 |
+| 3 | P2 | `model-config` 任意登录用户可改全局共享配置 | 建议仅管理员（`require_admin`），至少文档定案 | 待处理 |
+| 4 | P3 | POST 保存 pending 后未立即 recompute_stats，submit_count 延迟到评测完成 | POST 后同步 recompute 一次 | 待处理 |
+| 5 | P3 | `judge._JudgeError` 分支未清 score/counts/compile_info/run_info | 兜底清零 | 待处理 |
+| 6 | P3 | `llm_client.chat` 半截配置（有 key 缺 url/model）→ `KeyError` | 缺失转 `LLMError` | 待处理 |
+| 7 | P3 | access 审计文件名 `时间戳-user_id` 同微秒可覆盖；access 响应形态待终核 | 文件名加随机后缀；D7a 与 api.md 核对 | 待处理 |
+| 8 | P3 | `ai_tasks.next_task_id` 无锁（单 worker 理论安全）；`ACCEPTED_VERDICTS` 等死代码 | 低优先清理 | 待处理 |
+
+---
+
 ## 2026-09-05 · D4 计划评审（对应 `comments/2026-09-05-review-D4-plan-1524d10.md`）
 
 | # | 级别 | 问题 | 建议 | 状态 |
@@ -17,9 +32,24 @@
 
 ---
 
-## 历史已关闭项（简表）
+## 2026-09-07 · AI 后端 Phase2 评审（对应 `comments/2026-09-07-review-a981671.md`）
 
-| 日期 | 问题 | 处理 |
+| # | 级别 | 问题 | 状态 |
+|---|---|---|---|
+| 1 | P1 | `model-config` 省略可选计价字段 → 500 | ✅ 已修：`or` 默认兜底 + `test_model_config_minimal_request_ok` |
+| 2 | P1 | 普通任务 cancel 不生效（最终 completed） | ✅ 已修：pipeline `_guard_interrupted`（写状态前读最新任务、中断不再被覆盖）+ `test_task_normal_cancel_effective` |
+| 3 | P2 | model-config 全局配置权限口径 | ✅ 定案 require_admin（PUT/GET 均仅管理员） |
+| 4 | P3 | POST 后 submit_count 滞后到评测完成 | ✅ POST 保存 pending 后立即 recompute（幂等、评测完成再算） |
+| 5 | P3 | judge error 分支未清 score/counts/compile_info | ✅ 兜底清零 |
+| 6 | P3 | llm_client 半截配置 KeyError | ✅ 转 LLMError（provider_url/model 缺失检查） |
+| 7 | P3 | access 审计文件名同微秒碰撞 / 响应形态 | 🟡 记录：D7a 与 api.md 终核（响应如需 total 再补） |
+| 8 | P3 | next_task_id 无锁 + 死代码 | ✅ 死代码清理（judge `ACCEPTED_VERDICTS`、pipeline 重复 get）；无锁属单进程安全，已注明 |
+
+> 基础部分（Step5/Q5/Q6/flaky）评审确认 ✅；全量 63/63。
+
+---
+
+## 历史已关闭项（简表）| 日期 | 问题 | 处理 |
 |---|---|---|
 | 2026-09-04 | D3 P1 resolve/submit 并发竞态 | ✅ 全局串行锁（`634720a`） |
 | 2026-09-04 | D3 P2 languages 列表顺序/鉴权 | ✅ 按内置顺序 + 登录鉴权（`634720a`） |
