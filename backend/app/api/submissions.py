@@ -1,6 +1,6 @@
 """提交评测接口（官方 Step2 + Step3）：
 - POST /api/submissions/            提交评测（登录；429 单人单题；404 题目/语言不存在）
-- GET  /api/submissions/            评测列表（本人/管理员；一级条件至少其一；分页；摘要裁剪）
+- GET  /api/submissions/            评测列表（本人/管理员；一级条件至少其一；scope=all 仅管理员全量；分页；摘要裁剪）
 - GET  /api/submissions/{id}        评测详情（仅本人或管理员）
 - PUT  /api/submissions/{id}/rejudge 重新评测（仅管理员，覆盖原记录回 pending）
 """
@@ -72,15 +72,21 @@ async def list_submissions(
     status: str | None = Query(default=None),
     page: int | None = Query(default=None),
     page_size: int | None = Query(default=None),
+    scope: str | None = Query(default=None),
     current: dict = Depends(get_current_user),
 ):
     # 权限归一（api.md/需求 §5 Step3）：普通用户只能查自己的记录
-    if current["role"] != "admin":
+    if scope == "all":
+        # polish：管理员全量查询（前端“全部用户 × 全部题目”一次性取数）
+        if current["role"] != "admin":
+            raise ApiError(403, messages.PERMISSION_DENIED)
+        # user_id 保持 None；problem_id/status 照常过滤
+    elif current["role"] != "admin":
         if user_id is not None and user_id != current["user_id"]:
             raise ApiError(403, messages.PERMISSION_DENIED)
         user_id = current["user_id"]
-    # 一级条件（user_id/problem_id）不可全空
-    if user_id is None and problem_id is None:
+    # 一级条件（user_id/problem_id）不可全空（scope=all 为管理员全量例外）
+    if user_id is None and problem_id is None and scope != "all":
         raise ApiError(400, messages.FILTER_REQUIRED)
     total, items = submissions.list_records(user_id, problem_id, status, page, page_size)
     return success(msg="success", data={"total": total, "submissions": items})
