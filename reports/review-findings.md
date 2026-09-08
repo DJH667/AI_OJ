@@ -5,6 +5,19 @@
 
 ---
 
+## 2026-09-08 · 当前状况评审（对应 `comments/2026-09-08-review-current-077e79e.md`）
+
+结论：✅ HEAD `077e79e` 全量 75 passed、工作区 clean、已推送 `github.com/DJH667/AI_OJ`（main，68 提交）。
+
+| # | 级别 | 问题 | 建议 | 状态 |
+|---|---|---|---|---|
+| 1 | P2 | 启动自动种入示例题 P1000/P1001（reset 不回种、重启恢复）：若自动评测用同 id 建题会 409 | 验收前用真实评测脚本复核；文档说明可用 `OJ_SEED_DEMO=0` 关闭 | 待验收复核 |
+| 2 | P2 | 前端"普通用户改/删走申请-审批流"（applications，9.8 polish）：后端 PUT/DELETE 的 api.md 语义未变，需确认演示口径（api.md 走查 vs 审批流演示） | 与验收预期对齐并在演示脚本中明确 | 待确认 |
+| 3 | P3 | access 审计文件名同微秒碰撞 / 响应形态 | D7a 与 api.md 终核 | 待处理 |
+| — | 台账 | 9.7 本文件曾有两处重复旧表 + AI Phase2 #3 误记 require_admin（实际 per-user） | #3 已更正；重复旧表留待清理 | 🟡 部分处理 |
+
+---
+
 ## 2026-09-07 · 新增部分评审（对应 `comments/2026-09-07-review-a981671.md`）
 
 | # | 级别 | 问题 | 建议 | 状态 |
@@ -57,7 +70,7 @@
 |---|---|---|---|
 | 1 | P1 | `model-config` 省略可选计价字段 → 500 | ✅ 已修：`or` 默认兜底 + `test_model_config_minimal_request_ok` |
 | 2 | P1 | 普通任务 cancel 不生效（最终 completed） | ✅ 已修：pipeline `_guard_interrupted`（写状态前读最新任务、中断不再被覆盖）+ `test_task_normal_cancel_effective` |
-| 3 | P2 | model-config 全局配置权限口径 | ✅ 定案 require_admin（PUT/GET 均仅管理员） |
+| 3 | P2 | model-config 全局配置权限口径 | ✅ 已处理：**per-user**（用户判定 9.7 `e49bcd6`，改为每人自存配置，非 require_admin；本条此前误记为 require_admin，9.8 更正） |
 | 4 | P3 | POST 后 submit_count 滞后到评测完成 | ✅ POST 保存 pending 后立即 recompute（幂等、评测完成再算） |
 | 5 | P3 | judge error 分支未清 score/counts/compile_info | ✅ 兜底清零 |
 | 6 | P3 | llm_client 半截配置 KeyError | ✅ 转 LLMError（provider_url/model 缺失检查） |
