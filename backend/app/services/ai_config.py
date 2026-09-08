@@ -1,18 +1,18 @@
-"""AI 模型配置（R2，per-user）：每个用户自选 provider/model/api_key/计价，无需管理员。
+"""AI 模型配置（R2，per-user）：每个用户自选 provider/model/api_key，无需管理员。
 
 - 存 data/ai_configs/{username}.json（reset 不清——用户配置非测试数据）；
 - api_key 敏感：本地文件存储（data 已 gitignore）、不进日志/响应（对外仅 api_key_configured）；
-- **计价币种 CNY**（用户判定 2026-09-07）：input_price/output_price 为所选模型在 OpenRouter
-  公布的美元单价（USD / price_unit tokens）；费用按 fx_rate 折算为 CNY 展示。
-  fx_rate 默认 7.2（2026-09 参考值），用户可在配置页**按当日汇率更新**（以中国人民银行公布的
-  人民币汇率中间价为准），本项目不做外部行情自动拉取（验收环境网络不保证）。
+- **计价自动化（polish 2026-09-08，用户反馈）**：input_price/output_price/price_unit 不再由
+  用户填写，保存配置时按所选模型从 ai_catalog（OpenRouter 真实目录，离线内置表兜底）自动写入；
+  fx_rate 在计费/回显时由 ai_catalog.get_fx_rate() 自动获取（Frankfurter/ECB，离线内置参考值兜底）；
+  费用 = token/1M × 模型真实单价(USD) × 自动汇率，CNY 展示。
 """
 from app import config
 from app.db import store
+from app.services import ai_catalog
 
-DEFAULT_PRICE_UNIT = 1_000_000
-CURRENCY = "CNY"
-DEFAULT_FX_RATE = 7.2  # USD→CNY，参考中国人民银行中间价（2026-09）；可在 model-config 更新
+CURRENCY = ai_catalog.CURRENCY
+DEFAULT_PRICE_UNIT = ai_catalog.PRICE_UNIT
 
 
 def _load(username: str) -> dict:
@@ -36,8 +36,9 @@ def is_configured(username: str) -> bool:
 
 
 def to_public(username: str) -> dict:
-    """对外脱敏视图（不含 api_key）。"""
+    """对外脱敏视图（不含 api_key；单价/汇率为自动获取的真实数据）。"""
     cfg = _load(username)
+    fx = ai_catalog.get_fx_rate()
     return {
         "provider_url": cfg.get("provider_url", ""),
         "model": cfg.get("model", ""),
@@ -45,21 +46,30 @@ def to_public(username: str) -> dict:
         "input_price": cfg.get("input_price", 0.0),
         "output_price": cfg.get("output_price", 0.0),
         "price_unit": cfg.get("price_unit", DEFAULT_PRICE_UNIT),
-        "fx_rate": cfg.get("fx_rate", DEFAULT_FX_RATE),
+        "catalog_source": cfg.get("catalog_source", ""),
+        "fx_rate": fx["rate"],
+        "fx_source": fx["source"],
         "currency": CURRENCY,
     }
 
 
 def update(username: str, body: dict) -> dict:
-    """保存该用户配置（PUT /api/ai/model-config）。最小请求只需 provider_url/model/api_key。"""
+    """保存该用户配置（PUT /api/ai/model-config）。
+
+    只接收 provider_url/model/api_key；单价按所选模型从目录自动写入
+    （目录未知的模型记 0.0 并标 catalog_source=unknown，计费时再按目录兜底）。
+    """
+    model = str(body["model"]).strip()
+    catalog_items, source = ai_catalog.fetch_catalog()
+    pricing = next((m for m in catalog_items if m["id"] == model), None)
     cfg = {
-        "provider_url": body["provider_url"].rstrip("/"),
-        "model": body["model"],
+        "provider_url": str(body["provider_url"]).strip().rstrip("/"),
+        "model": model,
         "api_key": body["api_key"],
-        "input_price": float(body.get("input_price") or 0.0),   # USD / price_unit（OpenRouter 定价）
-        "output_price": float(body.get("output_price") or 0.0),
-        "price_unit": int(body.get("price_unit") or DEFAULT_PRICE_UNIT),
-        "fx_rate": float(body.get("fx_rate") or DEFAULT_FX_RATE),
+        "input_price": pricing["input_price"] if pricing else 0.0,
+        "output_price": pricing["output_price"] if pricing else 0.0,
+        "price_unit": ai_catalog.PRICE_UNIT,
+        "catalog_source": source if pricing else "unknown",
         "currency": CURRENCY,
     }
     save(username, cfg)
@@ -67,19 +77,26 @@ def update(username: str, body: dict) -> dict:
 
 
 def estimate_cost(usage: dict, username: str) -> dict:
-    """按该用户配置计价，返回 CNY 费用（USD 价 × fx_rate 折算）与用量。"""
+    """按所选模型真实单价与自动汇率计价，返回 CNY 费用与用量。"""
     cfg = _load(username)
+    model = cfg.get("model", "")
+    pricing = ai_catalog.find_model(model)
+    if pricing:
+        inp_price, out_price = pricing["input_price"], pricing["output_price"]
+    else:
+        inp_price = float(cfg.get("input_price", 0.0))
+        out_price = float(cfg.get("output_price", 0.0))
     unit = int(cfg.get("price_unit", DEFAULT_PRICE_UNIT)) or DEFAULT_PRICE_UNIT
-    fx = float(cfg.get("fx_rate", DEFAULT_FX_RATE))
+    fx = ai_catalog.get_fx_rate()
     inp = usage.get("prompt_tokens", 0)
     out = usage.get("completion_tokens", 0)
-    usd = (inp / unit * float(cfg.get("input_price", 0.0))
-           + out / unit * float(cfg.get("output_price", 0.0)))
+    usd = inp / unit * inp_price + out / unit * out_price
     return {
         "input_tokens": inp,
         "output_tokens": out,
         "total_tokens": inp + out,
-        "cost": round(usd * fx, 4),
+        "cost": round(usd * fx["rate"], 4),
         "currency": CURRENCY,
-        "fx_rate": fx,
+        "fx_rate": fx["rate"],
+        "fx_source": fx["source"],
     }

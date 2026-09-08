@@ -15,19 +15,29 @@ from app.api.deps import get_current_user
 from app.core import messages
 from app.core.exceptions import ApiError
 from app.core.response import success
-from app.services import ai_config, ai_pipeline, ai_tasks, languages, problems
+from app.services import ai_catalog, ai_config, ai_pipeline, ai_tasks, languages, problems
 
 router = APIRouter()
 
 
 class ModelConfigBody(BaseModel):
+    """polish 2026-09-08：仅连接信息由用户提供；单价/汇率由系统自动获取真实数据。"""
     provider_url: str
     model: str
     api_key: str
-    input_price: float | None = Field(default=None, ge=0)
-    output_price: float | None = Field(default=None, ge=0)
-    price_unit: int | None = Field(default=None, ge=1)
-    fx_rate: float | None = Field(default=None, gt=0)  # USD→CNY 汇率（当日可更新）
+
+
+@router.get("/api/ai/models")
+async def list_ai_models(current: dict = Depends(get_current_user)):
+    """模型目录（真实单价，OpenRouter 拉取；离线内置表兜底）。"""
+    items, source = ai_catalog.fetch_catalog()
+    return success(msg="success", data={"models": items, "source": source})
+
+
+@router.get("/api/ai/fx-rate")
+async def get_fx_rate(current: dict = Depends(get_current_user)):
+    """USD→CNY 自动汇率（Frankfurter/ECB；离线内置参考值兜底）。"""
+    return success(msg="success", data=ai_catalog.get_fx_rate())
 
 
 @router.put("/api/ai/model-config")

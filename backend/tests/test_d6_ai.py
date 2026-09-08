@@ -81,16 +81,19 @@ def _wait_task(c, task_id, timeout=15.0):
 # ---------- model-config ----------
 
 def test_model_config_roundtrip_hides_key(client):
+    # polish 2026-09-08：价格/汇率自动化——旧手填字段被忽略，单价按模型目录自动写入
     body = {"provider_url": "https://openrouter.ai/api/v1", "model": "deepseek/deepseek-chat",
-            "api_key": "sk-secret-123", "input_price": 0.5, "output_price": 1.5, "price_unit": 1000000,
-            "fx_rate": 7.2}
+            "api_key": "sk-secret-123", "input_price": 999, "output_price": 999,
+            "price_unit": 1, "fx_rate": 0.1}
     r = client.put("/api/ai/model-config", json=body)
     assert r.status_code == 200
     data = r.json()["data"]
     assert data["api_key_configured"] is True
     assert "api_key" not in data and "sk-secret" not in r.text
     assert data["model"] == "deepseek/deepseek-chat"
-    assert data["currency"] == "CNY" and data["fx_rate"] == 7.2
+    assert data["currency"] == "CNY" and data["fx_rate"] > 0
+    assert data["input_price"] != 999 and data["output_price"] != 999  # 价格来自目录而非用户
+    assert data["price_unit"] == 1_000_000
     # GET 同样脱敏
     data = client.get("/api/ai/model-config").json()["data"]
     assert data["api_key_configured"] is True and "api_key" not in data
@@ -231,3 +234,65 @@ def test_task_normal_cancel_effective(client, monkeypatch):
             break
         _t.sleep(0.05)
     assert data["status"] == "interrupted"  # 不被 completed 覆盖
+
+
+# ---------- AI 模型目录与汇率（polish 2026-09-08：自动化真实数据） ----------
+
+def test_ai_catalog_live_parse(client, monkeypatch):
+    from app.services import ai_catalog
+
+    # 解析单测：OpenRouter pricing（USD/token）→ USD/1M tokens
+    items = ai_catalog._parse_openrouter_payload({"data": [{
+        "id": "test/model-a", "name": "Model A", "description": "desc",
+        "context_length": 32000, "pricing": {"prompt": "0.0000003", "completion": "0.0000015"},
+    }, {
+        "id": "test/free-model", "name": "Free", "pricing": {"prompt": 0, "completion": 0},
+    }]})
+    assert len(items) == 1  # 无计价模型被过滤
+    assert items[0]["input_price"] == 0.3 and items[0]["output_price"] == 1.5
+    assert items[0]["price_unit"] == 1_000_000
+
+    monkeypatch.setattr(ai_catalog, "_fetch_openrouter_models", lambda: items)
+    monkeypatch.setattr(ai_catalog, "_fetch_fx_frankfurter", lambda: 7.14)
+    catalog_items, source = ai_catalog.fetch_catalog(force=True)
+    assert source == "openrouter"
+    assert catalog_items[0]["input_price"] == 0.3 and catalog_items[0]["output_price"] == 1.5
+    fx = ai_catalog.get_fx_rate(force=True)
+    assert fx["rate"] == 7.14 and fx["source"] == "frankfurter"
+    # API 层
+    data = client.get("/api/ai/models").json()["data"]
+    assert data["source"] == "openrouter" and data["models"][0]["id"] == "test/model-a"
+    data = client.get("/api/ai/fx-rate").json()["data"]
+    assert data["rate"] == 7.14 and data["source"] == "frankfurter"
+    # 保存配置时单价按目录自动写入（不再由用户提供）
+    r = client.put("/api/ai/model-config", json={
+        "provider_url": "https://openrouter.ai/api/v1", "model": "test/model-a", "api_key": "k",
+    })
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["input_price"] == 0.3 and data["output_price"] == 1.5
+    assert data["catalog_source"] == "openrouter"
+
+
+def test_ai_catalog_builtin_fallback(client, monkeypatch):
+    from app.services import ai_catalog
+
+    def _no_net():
+        raise RuntimeError("no network")
+
+    monkeypatch.setattr(ai_catalog, "_fetch_openrouter_models", _no_net)
+    monkeypatch.setattr(ai_catalog, "_fetch_fx_frankfurter", _no_net)
+    items, source = ai_catalog.fetch_catalog(force=True)
+    assert source == "builtin"
+    assert any(m["id"] == "deepseek/deepseek-chat" for m in items)
+    assert all({"id", "name", "input_price", "output_price", "price_unit"} <= set(m) for m in items)
+    fx = ai_catalog.get_fx_rate(force=True)
+    assert fx["rate"] == 7.2 and fx["source"] == "builtin"
+    # 离线时配置接口仍可用，价格为内置目录价
+    r = client.put("/api/ai/model-config", json={
+        "provider_url": "https://openrouter.ai/api/v1", "model": "deepseek/deepseek-chat", "api_key": "k",
+    })
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["catalog_source"] == "builtin"
+    assert data["input_price"] == 0.27 and data["output_price"] == 1.10
