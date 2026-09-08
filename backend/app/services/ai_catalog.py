@@ -2,9 +2,13 @@
 
 - 模型目录：实时拉取 OpenRouter 公开接口 GET /api/v1/models（无需 key），
   解析 pricing（USD/token）× 1M → USD/1M tokens；失败回退内置常用模型表（source=builtin）；
+  内置表同时含 DeepSeek 官方直连模型（deepseek-chat/deepseek-reasoner），
+  供 provider_url=https://api.deepseek.com 场景下拉选择与计价；
 - 汇率：Frankfurter（ECB，免费无 key）USD→CNY；失败回退内置参考值（source=builtin）；
-- 内存缓存：目录 1h、汇率 12h；验收环境网络不保证，两条链路均有降级；
-- find_model 只查缓存（不主动联网），供计费路径使用，避免后台任务卡网络。
+  2026 年 Frankfurter 域名迁移 api.frankfurter.app → api.frankfurter.dev/v1（旧域 301），
+  两域依次尝试；失败/降级走短 TTL 自动重试，不再把一次网络失败缓存 12 小时；
+- 内存缓存：目录 1h（失败 5min 重试）、汇率 12h（失败 5min 重试）；
+- find_model 只查缓存/内置表（不主动联网），供计费路径使用，避免后台任务卡网络。
 """
 import time
 
@@ -14,11 +18,19 @@ PRICE_UNIT = 1_000_000  # 计价单位：每百万 tokens
 CURRENCY = "CNY"
 DEFAULT_FX_RATE = 7.2  # USD→CNY 内置参考值（仅网络不可用时兜底，2026-09 参考）
 
-# 内置常用模型（OpenRouter 公开定价，USD/1M tokens；供离线降级）
+# 内置常用模型（USD/1M tokens；供离线降级与官方直连模型选择）
 BUILTIN_MODELS = [
     {"id": "deepseek/deepseek-chat", "name": "DeepSeek Chat (V3)",
-     "description": "DeepSeek-V3 对话模型", "context_length": 65536,
+     "description": "DeepSeek-V3 对话模型（OpenRouter 路由）", "context_length": 65536,
      "input_price": 0.27, "output_price": 1.10, "price_unit": PRICE_UNIT},
+    {"id": "deepseek-chat", "name": "DeepSeek Chat（官方直连）",
+     "description": "DeepSeek 官方 API 对话模型（provider_url 填 https://api.deepseek.com，官方 key）",
+     "context_length": 65536,
+     "input_price": 0.27, "output_price": 1.10, "price_unit": PRICE_UNIT},
+    {"id": "deepseek-reasoner", "name": "DeepSeek Reasoner（官方直连）",
+     "description": "DeepSeek 官方 API 推理模型（provider_url 填 https://api.deepseek.com，官方 key）",
+     "context_length": 65536,
+     "input_price": 0.55, "output_price": 2.19, "price_unit": PRICE_UNIT},
     {"id": "openai/gpt-4o-mini", "name": "GPT-4o mini",
      "description": "OpenAI 轻量多模态模型", "context_length": 128000,
      "input_price": 0.15, "output_price": 0.60, "price_unit": PRICE_UNIT},
@@ -34,10 +46,23 @@ _catalog_cache: list[dict] | None = None
 _catalog_source = "builtin"
 _catalog_fetched_at = 0.0
 CATALOG_TTL = 3600
+CATALOG_FAIL_RETRY = 300  # 拉取失败/降级时 5 分钟后重试（不再把失败缓存 1h）
 
 _fx_cache: dict | None = None
 _fx_fetched_at = 0.0
 FX_TTL = 12 * 3600
+FX_FAIL_RETRY = 300  # 拉取失败/降级时 5 分钟后重试（不再把失败缓存 12h）
+
+
+def _merge_builtin(items: list[dict]) -> tuple[list[dict], bool]:
+    """把内置表（含 DeepSeek 官方直连模型）并入实时目录，返回 (合并结果, 是否有补充)。"""
+    merged = {m["id"]: m for m in items}
+    added = False
+    for m in BUILTIN_MODELS:
+        if m["id"] not in merged:
+            merged[m["id"]] = dict(m)
+            added = True
+    return list(merged.values()), added
 
 
 def _parse_openrouter_payload(payload: dict) -> list[dict]:
@@ -76,17 +101,22 @@ def _fetch_openrouter_models() -> list[dict]:
 
 
 def fetch_catalog(force: bool = False) -> tuple[list[dict], str]:
-    """模型目录 + 来源（openrouter/builtin）；TTL 内走缓存。"""
+    """模型目录 + 来源（openrouter / openrouter+builtin / builtin）；TTL 内走缓存，失败走短 TTL 重试。"""
     global _catalog_cache, _catalog_source, _catalog_fetched_at
     now = time.time()
-    if not force and _catalog_cache is not None and now - _catalog_fetched_at < CATALOG_TTL:
-        return _catalog_cache, _catalog_source
+    if not force and _catalog_cache is not None:
+        ttl = CATALOG_TTL if _catalog_source.startswith("openrouter") else CATALOG_FAIL_RETRY
+        if now - _catalog_fetched_at < ttl:
+            return _catalog_cache, _catalog_source
     try:
         items = _fetch_openrouter_models()
         if items:
+            items, added = _merge_builtin(items)
             items.sort(key=lambda m: (m["input_price"] + m["output_price"], m["id"]))
-            _catalog_cache, _catalog_source, _catalog_fetched_at = items, "openrouter", now
-            return items, "openrouter"
+            _catalog_cache = items
+            _catalog_source = "openrouter+builtin" if added else "openrouter"
+            _catalog_fetched_at = now
+            return items, _catalog_source
     except Exception:
         pass
     _catalog_cache = [dict(m) for m in BUILTIN_MODELS]
@@ -95,30 +125,37 @@ def fetch_catalog(force: bool = False) -> tuple[list[dict], str]:
 
 
 def find_model(model_id: str) -> dict | None:
-    """按 id 查缓存目录（不主动联网，供计费路径使用）。"""
-    items = _catalog_cache if _catalog_cache is not None else [dict(m) for m in BUILTIN_MODELS]
-    for m in items:
+    """按 id 查缓存目录 + 内置表（不主动联网，供计费路径使用）。"""
+    items = _catalog_cache if _catalog_cache is not None else []
+    for m in list(items) + [dict(m) for m in BUILTIN_MODELS]:
         if m.get("id") == model_id:
             return m
     return None
 
 
 def _fetch_fx_frankfurter() -> float:
-    resp = httpx.get("https://api.frankfurter.app/latest",
-                     params={"from": "USD", "to": "CNY"}, timeout=10.0)
-    resp.raise_for_status()
-    rate = float(resp.json()["rates"]["CNY"])
-    if rate <= 0:
-        raise ValueError("invalid fx rate")
-    return rate
+    """USD→CNY：Frankfurter 新域（/v1/）优先，旧域兜底（2026 迁移，旧域 301）。"""
+    last_error: Exception | None = None
+    for url in ("https://api.frankfurter.dev/v1/latest", "https://api.frankfurter.app/latest"):
+        try:
+            resp = httpx.get(url, params={"from": "USD", "to": "CNY"}, timeout=10.0)
+            resp.raise_for_status()
+            rate = float(resp.json()["rates"]["CNY"])
+            if rate > 0:
+                return rate
+        except Exception as exc:  # noqa: BLE001 双域依次尝试
+            last_error = exc
+    raise RuntimeError("fx fetch failed") from last_error
 
 
 def get_fx_rate(force: bool = False) -> dict:
-    """USD→CNY 汇率 + 来源（frankfurter/builtin）；TTL 内走缓存。"""
+    """USD→CNY 汇率 + 来源（frankfurter/builtin）；成功缓存 12h，失败降级 5min 后自动重试。"""
     global _fx_cache, _fx_fetched_at
     now = time.time()
-    if not force and _fx_cache is not None and now - _fx_fetched_at < FX_TTL:
-        return dict(_fx_cache)
+    if not force and _fx_cache is not None:
+        ttl = FX_TTL if _fx_cache.get("source") == "frankfurter" else FX_FAIL_RETRY
+        if now - _fx_fetched_at < ttl:
+            return dict(_fx_cache)
     try:
         rate = _fetch_fx_frankfurter()
         _fx_cache = {

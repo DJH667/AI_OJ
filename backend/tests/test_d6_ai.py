@@ -255,13 +255,17 @@ def test_ai_catalog_live_parse(client, monkeypatch):
     monkeypatch.setattr(ai_catalog, "_fetch_openrouter_models", lambda: items)
     monkeypatch.setattr(ai_catalog, "_fetch_fx_frankfurter", lambda: 7.14)
     catalog_items, source = ai_catalog.fetch_catalog(force=True)
-    assert source == "openrouter"
-    assert catalog_items[0]["input_price"] == 0.3 and catalog_items[0]["output_price"] == 1.5
+    # polish 2026-09-08：实时目录合并内置补充（DeepSeek 官方直连模型）
+    assert source == "openrouter+builtin"
+    by_id = {m["id"]: m for m in catalog_items}
+    assert by_id["test/model-a"]["input_price"] == 0.3 and by_id["test/model-a"]["output_price"] == 1.5
+    assert by_id["deepseek-chat"]["input_price"] == 0.27  # 官方直连模型已并入
     fx = ai_catalog.get_fx_rate(force=True)
     assert fx["rate"] == 7.14 and fx["source"] == "frankfurter"
     # API 层
     data = client.get("/api/ai/models").json()["data"]
-    assert data["source"] == "openrouter" and data["models"][0]["id"] == "test/model-a"
+    assert data["source"] == "openrouter+builtin"
+    assert "test/model-a" in {m["id"] for m in data["models"]}
     data = client.get("/api/ai/fx-rate").json()["data"]
     assert data["rate"] == 7.14 and data["source"] == "frankfurter"
     # 保存配置时单价按目录自动写入（不再由用户提供）
@@ -271,7 +275,7 @@ def test_ai_catalog_live_parse(client, monkeypatch):
     assert r.status_code == 200
     data = r.json()["data"]
     assert data["input_price"] == 0.3 and data["output_price"] == 1.5
-    assert data["catalog_source"] == "openrouter"
+    assert data["catalog_source"] == "openrouter+builtin"
 
 
 def test_ai_catalog_builtin_fallback(client, monkeypatch):
