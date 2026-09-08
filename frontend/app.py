@@ -1437,7 +1437,7 @@ def render_task_progress(task_id: str) -> None:
     usage = data.get("usage")
     if usage:
         st.caption(f"Token：{usage.get('input_tokens', 0)} in / {usage.get('output_tokens', 0)} out · "
-                   f"费用 {usage.get('cost', 0)} {usage.get('currency', 'CNY')}（USD 单价 × fx_rate {usage.get('fx_rate', '')}）")
+                   f"费用 {usage.get('cost', 0)} {usage.get('currency', 'CNY')}（自动汇率 {usage.get('fx_rate', '')}）")
     if data.get("review"):
         st.warning(f"需人工复核：{data.get('review_note', '')}")
     if data.get("error"):
@@ -1470,30 +1470,60 @@ def render_task_progress(task_id: str) -> None:
 
 def _render_model_config() -> None:
     client = get_client()
-    st.caption("配置仅用于你自己的命题任务（per-user）；provider_url 通常为 OpenRouter，model 需在其上有明确计价。")
+    st.caption("选择模型并填写 API Key；模型单价与汇率由系统自动获取真实数据，无需手工填写。不填 Key 走本地 mock。")
+    try:
+        catalog_data = client.get("/api/ai/models")
+        cfg = client.get("/api/ai/model-config")
+    except ApiClientError as exc:
+        _err(exc)
+        return
+    models = catalog_data.get("models", [])
+    source = catalog_data.get("source", "builtin")
+    model_by_id = {m["id"]: m for m in models}
+    options = [m["id"] for m in models]
+    current_model = cfg.get("model") or ""
+    if current_model and current_model not in model_by_id:
+        options.insert(0, current_model)  # 旧配置模型保留可见（价格显示按实际存储值）
+    index = options.index(current_model) if current_model in options else 0
+
     with st.form("ai_cfg_form"):
-        provider = st.text_input("provider_url", "https://openrouter.ai/api/v1")
-        model = st.text_input("model", "deepseek/deepseek-chat")
-        key = st.text_input("api_key", type="password")
-        c = st.columns(3)
-        inp = c[0].number_input("input_price（USD/unit）", min_value=0.0, value=0.0, format="%.4f")
-        out = c[1].number_input("output_price（USD/unit）", min_value=0.0, value=0.0, format="%.4f")
-        unit = c[2].number_input("price_unit", min_value=1, value=1_000_000, step=100000)
-        fx = st.number_input("fx_rate（USD→CNY，请按当日更新）", min_value=0.1, value=7.2, format="%.4f",
-                             help="默认 7.2 为 2026-09 参考值；以中国人民银行中间价为准，当日可更新。")
-        if st.form_submit_button("保存配置"):
-            if not (provider and model and key):
-                st.error("provider_url / model / api_key 必填（无 key 时走本地 mock）")
-            else:
-                try:
-                    data = client.put("/api/ai/model-config", json={
-                        "provider_url": provider, "model": model, "api_key": key,
-                        "input_price": inp, "output_price": out, "price_unit": int(unit), "fx_rate": fx,
-                    })
-                    st.success(f"已保存：{data.get('model')}（{data.get('currency')}）")
-                except ApiClientError as exc:
-                    _err(exc)
-    st.caption("计价：模型单价取自 OpenRouter（USD/1M tokens）；费用 = token/单位×单价(USD)×fx_rate，CNY 展示。")
+        model = st.selectbox(
+            "模型",
+            options,
+            index=index,
+            key="ai_model",
+            format_func=lambda mid: (f"{model_by_id[mid]['name']}（{mid}）"
+                                     if mid in model_by_id else mid),
+        )
+        key = st.text_input("API Key（OpenRouter）", type="password", key="ai_key",
+                            help="留空走本地 mock 演示；Key 仅存本地、不回显")
+        with st.expander("高级（可选）"):
+            provider = st.text_input("provider_url",
+                                     value=cfg.get("provider_url") or "https://openrouter.ai/api/v1",
+                                     key="ai_provider")
+        submitted = st.form_submit_button("保存配置", key="ai_cfg_save", type="primary", width="stretch")
+
+    # 选中模型的真实单价（自动获取，随选择即时更新）
+    sel = model_by_id.get(model)
+    if sel:
+        st.markdown(f":material/sell: **{sel['name']}** · `{sel['id']}`")
+        st.markdown(f"输入 **{sel['input_price']}** USD/1M tokens · 输出 **{sel['output_price']}** USD/1M tokens")
+        if sel.get("description"):
+            st.caption(sel["description"])
+    else:
+        st.caption(f"模型「{model}」不在目录中（自定义模型），单价按已存配置计算。")
+    fx_src = {"frankfurter": "实时汇率（Frankfurter/ECB）",
+              "builtin": "内置参考汇率（网络不可用）"}.get(cfg.get("fx_source"), cfg.get("fx_source") or "—")
+    st.caption(f"汇率 USD→CNY：**{cfg.get('fx_rate')}**（{fx_src}）· 模型目录来源：{source}")
+    if submitted:
+        try:
+            data = client.put("/api/ai/model-config", json={
+                "provider_url": provider, "model": model, "api_key": key,
+            })
+            st.success(f"已保存：{data.get('model')}")
+        except ApiClientError as exc:
+            _err(exc)
+    st.caption("计价：费用 = token/1M × 模型真实单价(USD) × 自动汇率，CNY 展示。")
 
 
 # ============================== 入口 ==============================
