@@ -12,6 +12,7 @@
 """
 import json
 import math
+import time
 
 import streamlit as st
 
@@ -115,6 +116,23 @@ def _fmt_time(created_at: str) -> str:
         return "—"
     iso = created_at.replace("T", " ")
     return f"{iso[5:10]} {iso[11:16]}" if len(iso) >= 16 else iso
+
+
+_LANGUAGE_LEXERS = {
+    "python": "python",
+    "cpp": "cpp",
+    "c++": "cpp",
+    "c": "c",
+    "java": "java",
+    "javascript": "javascript",
+    "go": "go",
+    "rust": "rust",
+}
+
+
+def _code_language(lang: str | None) -> str:
+    """提交语言 → Pygments lexer（未知语言回退 text）。"""
+    return _LANGUAGE_LEXERS.get((lang or "").lower(), "text")
 
 
 # 难度标签（与后端方案 D 先验映射一致：入门 1.0 … NOI 10.0）
@@ -277,7 +295,7 @@ def _dump(obj) -> str:
 def _reset_sub_state() -> None:
     """切换一级页面时清理所有二级页面状态（题库页码除外）。"""
     for key in ("view_problem_id", "submit_open", "manage_action", "ai_open",
-                "query_problem_id", "query_rows", "query_page", "query_detail_sid",
+                "query_problem_id", "query_params", "query_page", "query_detail_sid",
                 "prefill_problem", "prefill_score"):
         st.session_state.pop(key, None)
     _clear_form_state()
@@ -292,6 +310,48 @@ def _goto(page: str) -> None:
 def _flash(message: str) -> None:
     """跨 rerun 的轻提示（下一轮以 st.toast 展示）。"""
     st.session_state["flash"] = message
+
+
+# ============================== 会话级 TTL 缓存 ==============================
+# 说明：不用 st.cache_data 是因为取数依赖 st.session_state 里的 ApiClient（含登录 Cookie），
+# 缓存函数不能访问 session_state；这里用 session 级 TTL 缓存，退出登录即随 session 清空。
+
+_CACHE_TTL_SECONDS = 30
+
+
+def _cache_get(key: str):
+    entry = st.session_state.get(f"cache:{key}")
+    if not isinstance(entry, dict):
+        return None
+    if time.time() - entry.get("ts", 0) > _CACHE_TTL_SECONDS:
+        return None
+    return entry.get("data")
+
+
+def _cache_set(key: str, data) -> None:
+    st.session_state[f"cache:{key}"] = {"ts": time.time(), "data": data}
+
+
+def _clear_caches() -> None:
+    for key in list(st.session_state.keys()):
+        if key.startswith("cache:"):
+            st.session_state.pop(key, None)
+
+
+def _get_problems_cached(client) -> list:
+    data = _cache_get("problems")
+    if data is None:
+        data = client.get("/api/problems/")
+        _cache_set("problems", data)
+    return data
+
+
+def _get_languages_cached(client) -> list:
+    data = _cache_get("languages")
+    if data is None:
+        data = client.get("/api/languages/").get("name", [])
+        _cache_set("languages", data)
+    return data
 
 
 # ============================== 登录 / 注册 ==============================
@@ -463,7 +523,7 @@ def render_problem_bank() -> None:
                            key="bank_search", label_visibility="collapsed")
     client = get_client()
     try:
-        problems = client.get("/api/problems/")
+        problems = _get_problems_cached(client)
     except ApiClientError as exc:
         _err(exc)
         return
@@ -515,11 +575,12 @@ def _render_problem_card(p: dict) -> None:
         left, right = st.columns([2.6, 1], vertical_alignment="center")
         with left:
             st.markdown(f"### {p.get('title') or '未命名题目'}")
-            badges = [f":violet-badge[{p.get('difficulty') or '难度未知'}]"]
+            badges = [f":violet-badge[{p.get('difficulty') or '难度未知'}]", f":gray-badge[#{pid}]"]
             badges += [f":gray-badge[{t}]" for t in (p.get("tags") or [])]
             st.markdown(" ".join(badges))
         with right:
-            st.progress(float(p.get("pass_rate") or 0.0), text="通过率")
+            st.caption("通过率")
+            st.progress(float(p.get("pass_rate") or 0.0))
             if st.button("进入题目", key=f"open_{pid}", type="primary", width="stretch"):
                 st.session_state["view_problem_id"] = pid
                 st.session_state.pop("submit_open", None)
@@ -590,7 +651,7 @@ def _render_submit_panel(pid: str) -> None:
                 st.rerun()
         else:
             try:
-                languages = client.get("/api/languages/").get("name", [])
+                languages = _get_languages_cached(client)
             except ApiClientError as exc:
                 _err(exc)
                 languages = []
@@ -605,6 +666,7 @@ def _render_submit_panel(pid: str) -> None:
                         data = client.post("/api/submissions/", json={
                             "problem_id": pid, "language": lang, "code": code,
                         })
+                        _clear_caches()
                         _flash(f"已提交，评测中…（#{data.get('submission_id')}）")
                         st.rerun()
                     except ApiClientError as exc:
@@ -662,7 +724,7 @@ def render_query_page() -> None:
     me = st.session_state.get("user", {})
     is_admin = me.get("role") == "admin"
     try:
-        problems = sorted(client.get("/api/problems/"), key=lambda p: str(p.get("id", "")))
+        problems = sorted(_get_problems_cached(client), key=lambda p: str(p.get("id", "")))
         users = client.get("/api/users/").get("users", []) if is_admin else []
     except ApiClientError as exc:
         _err(exc)
@@ -697,13 +759,57 @@ def render_query_page() -> None:
                     scope = f"user:{u['user_id']}"
                     break
 
-    if st.button("查询", key="run_query", type="primary", width="stretch"):
-        _fetch_query_results(client, me, problem_choice, scope, users)
+    run_col, status_col = st.columns([1, 1], vertical_alignment="center")
+    if run_col.button("查询", key="run_query", type="primary", width="stretch"):
+        st.session_state["query_params"] = _build_query_params(me, problem_choice, scope)
+        st.session_state["query_page"] = 1
+        st.rerun()
+    status_col.selectbox(
+        "状态筛选", ["全部", "评测中", "通过", "部分通过", "未通过", "错误"],
+        key="query_status",
+    )
 
-    rows = st.session_state.get("query_rows")
-    if rows is None:
+    params = st.session_state.get("query_params")
+    if params is None:
         st.caption("选择范围后点击「查询」")
         return
+    _render_query_results(client, me, title_by_id, params)
+
+
+def _build_query_params(me: dict, problem_choice: str, scope: str) -> dict:
+    """把查询页控件状态转换为后端 GET /api/submissions/ 参数。
+
+    - 普通用户：仅自己（后端亦强制归一）；
+    - 管理员 + 全部用户：scope=all 一次性取全部（后端 2026-09-08 新增，仅管理员）；
+    - 不传 page_size：后端返回该范围内全部记录，前端自行分页，避免固定截断。
+    """
+    params: dict = {}
+    if problem_choice:
+        params["problem_id"] = problem_choice
+    if scope == "self":
+        params["user_id"] = me.get("user_id")
+    elif scope.startswith("user:"):
+        params["user_id"] = scope[len("user:"):]
+    elif scope == "all":
+        params["scope"] = "all"
+    return params
+
+
+@st.fragment(run_every=3)
+def _render_query_results(client, me: dict, title_by_id: dict, params: dict) -> None:
+    """查询结果区：每 3s 自动刷新（pending 提交无需手动刷新即变最终状态）。
+
+    每次 rerun 都重新从后端取数，应用当前状态筛选后按 QUERY_PAGE_SIZE 分页。
+    """
+    status_filter = st.session_state.get("query_status", "全部")
+    try:
+        data = client.get("/api/submissions/", params=params)
+        rows = data.get("submissions", [])
+    except ApiClientError as exc:
+        _err(exc)
+        return
+    if status_filter != "全部":
+        rows = [r for r in rows if _verdict(r) == status_filter]
     if not rows:
         st.space("small")
         st.markdown("### :material/inbox: 暂无提交记录", text_alignment="center")
@@ -730,43 +836,6 @@ def render_query_page() -> None:
     if next_col.button("下一页 →", key="query_next", disabled=page_num >= total_pages, width="stretch"):
         st.session_state["query_page"] = page_num + 1
         st.rerun()
-
-
-def _fetch_query_results(client, me: dict, problem_choice: str, scope: str, users: list) -> None:
-    """按范围取提交记录（后端契约：一级条件 user_id/problem_id 至少其一）。
-
-    - 普通用户：仅自己（后端亦强制归一）；
-    - 管理员 + 指定题目 + 全部用户：只传 problem_id（后端返回该题所有用户记录）；
-    - 管理员 + 全部题目 + 全部用户：逐用户查询后合并，按提交倒序（保留契约，不新增接口）。
-    """
-    me_id = me.get("user_id")
-    params: dict = {}
-    if problem_choice:
-        params["problem_id"] = problem_choice
-    if scope == "self":
-        params["user_id"] = me_id
-    elif scope.startswith("user:"):
-        params["user_id"] = scope[len("user:"):]
-    elif scope == "all" and not problem_choice:
-        merged: list[dict] = []
-        for u in users:
-            try:
-                data = get_client().get("/api/submissions/", params={
-                    "user_id": u["user_id"], "page_size": 1000,
-                })
-                merged += data.get("submissions", [])
-            except ApiClientError:
-                continue
-        merged.sort(key=lambda r: str(r.get("submission_id", "")), reverse=True)
-        st.session_state["query_rows"] = merged
-        st.session_state["query_page"] = 1
-        return
-    try:
-        data = get_client().get("/api/submissions/", params={**params, "page_size": 1000})
-        st.session_state["query_rows"] = data.get("submissions", [])
-        st.session_state["query_page"] = 1
-    except ApiClientError as exc:
-        _err(exc)
 
 
 def _render_query_row(s: dict, title_by_id: dict, client, me: dict) -> None:
@@ -809,8 +878,17 @@ def show_detail_and_log(client, sid: str, me: dict) -> None:
                  else ":red-badge[评测错误]")
     st.markdown(f"{badge} · "
                 f"score={detail.get('score')}/{detail.get('counts')}")
+    if me.get("role") == "admin":
+        if st.button(":material/refresh: 重新评测", key=f"rejudge_{sid}"):
+            try:
+                client.put(f"/api/submissions/{sid}/rejudge")
+                _clear_caches()
+                _flash(f"已提交重新评测：{sid}")
+                st.rerun()
+            except ApiClientError as exc:
+                _err(exc)
     with st.expander("代码", expanded=False):
-        st.code(detail.get("code") or "", language="python")
+        st.code(detail.get("code") or "", language=_code_language(detail.get("language")))
     ci = detail.get("compile_info")
     if ci:
         st.write(f"编译：{ci.get('result')} · {ci.get('message', '')[:500]}")
@@ -862,7 +940,7 @@ def render_manage_page() -> None:
 
     client = get_client()
     try:
-        problems = client.get("/api/problems/")
+        problems = _get_problems_cached(client)
     except ApiClientError as exc:
         _err(exc)
         return
@@ -960,6 +1038,7 @@ def _confirm_delete(pid: str, title: str) -> None:
         except ApiClientError as exc:
             st.error(str(exc))
             return
+        _clear_caches()
         _flash(f"已删除题目：{title}")
         st.rerun()
     if col_cancel.button("取消", width="stretch"):
@@ -1005,6 +1084,7 @@ def render_problem_form_page(edit_id: str | None) -> None:
             body["id"] = edit_id
             if is_admin:
                 client.put(f"/api/problems/{edit_id}", json=body)
+                _clear_caches()
                 _flash(f"题目已更新：{body['title']}")
             else:
                 client.post(f"/api/problems/{edit_id}/apply",
@@ -1012,6 +1092,7 @@ def render_problem_form_page(edit_id: str | None) -> None:
                 _flash(f"已提交修改申请：{body['title']}，等待管理员审批")
         else:
             client.post("/api/problems/", json=body)
+            _clear_caches()
             _flash(f"题目已添加：{body['title']}")
     except ApiClientError as exc:
         _err(exc)
@@ -1213,6 +1294,7 @@ def _render_application_card(a: dict, client) -> None:
             if c1.button("接纳", key=f"accept_{aid}", type="primary", width="stretch"):
                 try:
                     client.put(f"/api/applications/{aid}", json={"decision": "accept"})
+                    _clear_caches()
                     _flash(f"已通过申请：{a.get('problem_title')}（{action}）")
                     st.rerun()
                 except ApiClientError as exc:
@@ -1235,14 +1317,14 @@ def _render_application_card(a: dict, client) -> None:
 
 def _available_languages() -> list[str]:
     try:
-        return get_client().get("/api/languages/").get("name", [])
+        return _get_languages_cached(get_client())
     except ApiClientError:
         return ["python", "cpp"]
 
 
-def _available_problems() -> list[str]:
+def _available_problems() -> list[dict]:
     try:
-        return [p["id"] for p in get_client().get("/api/problems/")]
+        return _get_problems_cached(get_client())
     except ApiClientError:
         return []
 
@@ -1283,8 +1365,14 @@ def render_ai_page() -> None:
             scale = st.text_input("自定义规模", key="scale_other")
         background = st.text_area("情景/背景故事（可选）", key="ai_bg")
         note = st.text_area("备注（可选）", key="ai_note")
-        ref_opts = _available_problems()
-        ref = st.selectbox("站内参考题（可选）", [""] + ref_opts)
+        problems = _available_problems()
+        ref_opts = [p["id"] for p in problems]
+        title_by_id = {p["id"]: p.get("title") or "未命名题目" for p in problems}
+        ref = st.selectbox(
+            "站内参考题（可选）",
+            [""] + ref_opts,
+            format_func=lambda pid: "（无）" if pid == "" else f"{str(pid).ljust(12)} {title_by_id.get(pid, '')}",
+        )
         problem_id = ref or None
         c4, c5 = st.columns(2)
         with c4:
