@@ -358,12 +358,14 @@ def _get_languages_cached(client) -> list:
 
 def render_auth_page() -> None:
     """未登录时的全画幅居中登录/注册页（注册成功自动登录并进入题库）。"""
+    # 标题/副标题放全宽居中（窄列里 h1 会换行，如"测"字被挤到第二行），
+    # 仅登录卡片用窄列包裹居中
+    st.space("large")
+    st.title("OJ 在线评测", icon=":material/rocket_launch:", text_alignment="center")
+    st.caption("登录或注册，开启你的刷题之旅", text_alignment="center")
+    st.space("medium")
     _, mid, _ = st.columns([1, 1.1, 1])
     with mid:
-        st.space("large")
-        st.title("OJ 在线评测", icon=":material/rocket_launch:", text_alignment="center")
-        st.caption("登录或注册，开启你的刷题之旅", text_alignment="center")
-        st.space("medium")
         with st.container(border=True):
             tab_login, tab_register = st.tabs(["登录", "注册"])
             with tab_login:
