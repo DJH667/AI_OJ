@@ -1470,7 +1470,8 @@ def render_task_progress(task_id: str) -> None:
 
 def _render_model_config() -> None:
     client = get_client()
-    st.caption("选择模型并填写 API Key；模型单价与汇率由系统自动获取真实数据，无需手工填写。不填 Key 走本地 mock。")
+    st.caption("选择模型并填写 API Key（支持 OpenRouter 与 DeepSeek 官方直连）；"
+               "模型单价与汇率由系统自动获取真实数据，无需手工填写。不填 Key 走本地 mock。")
     try:
         catalog_data = client.get("/api/ai/models")
         cfg = client.get("/api/ai/model-config")
@@ -1480,11 +1481,17 @@ def _render_model_config() -> None:
     models = catalog_data.get("models", [])
     source = catalog_data.get("source", "builtin")
     model_by_id = {m["id"]: m for m in models}
-    options = [m["id"] for m in models]
+    CUSTOM_MODEL = "__custom__"
+    options = [m["id"] for m in models] + [CUSTOM_MODEL]
     current_model = cfg.get("model") or ""
-    if current_model and current_model not in model_by_id:
-        options.insert(0, current_model)  # 旧配置模型保留可见（价格显示按实际存储值）
-    index = options.index(current_model) if current_model in options else 0
+    custom_prefill = ""
+    if current_model and current_model in model_by_id:
+        index = options.index(current_model)
+    else:
+        # 旧配置/不在目录的模型：选中“自定义模型…”并预填原 id，保留可见可编辑
+        index = options.index(CUSTOM_MODEL)
+        if current_model:
+            custom_prefill = current_model
 
     with st.form("ai_cfg_form"):
         model = st.selectbox(
@@ -1492,33 +1499,52 @@ def _render_model_config() -> None:
             options,
             index=index,
             key="ai_model",
-            format_func=lambda mid: (f"{model_by_id[mid]['name']}（{mid}）"
-                                     if mid in model_by_id else mid),
+            format_func=lambda mid: ("自定义模型…" if mid == CUSTOM_MODEL else
+                                     f"{model_by_id[mid]['name']}（{mid}）" if mid in model_by_id else mid),
         )
-        key = st.text_input("API Key（OpenRouter）", type="password", key="ai_key",
-                            help="留空走本地 mock 演示；Key 仅存本地、不回显")
+        if model == CUSTOM_MODEL:
+            custom_model = st.text_input(
+                "自定义模型 id",
+                value=custom_prefill,
+                placeholder="如 deepseek-chat / deepseek-reasoner（DeepSeek 官方）",
+                key="ai_model_custom",
+                help="填 provider 侧的真实模型 id；DeepSeek 官方不带厂商前缀。")
+        else:
+            custom_model = ""
+        key = st.text_input("API Key", type="password", key="ai_key",
+                            help="留空走本地 mock 演示；Key 仅存本地、不回显。"
+                                 "OpenRouter 与 DeepSeek 官方 key 均支持，与 provider_url 配套使用。")
         with st.expander("高级（可选）"):
             provider = st.text_input("provider_url",
                                      value=cfg.get("provider_url") or "https://openrouter.ai/api/v1",
-                                     key="ai_provider")
+                                     key="ai_provider",
+                                     help="OpenAI 兼容接口基址。OpenRouter 填 https://openrouter.ai/api/v1；"
+                                          "DeepSeek 官方填 https://api.deepseek.com。")
+            st.caption("OpenRouter：模型用厂商前缀 id（如 deepseek/deepseek-chat），Key 用 OpenRouter 的 key；"
+                       "DeepSeek 官方：模型用 deepseek-chat / deepseek-reasoner（不带前缀），Key 用官网 key。"
+                       "混用（OpenRouter 的模型 id 配 DeepSeek 官方地址）会报 Model Not Exist。")
         submitted = st.form_submit_button("保存配置", key="ai_cfg_save", type="primary", width="stretch")
 
     # 选中模型的真实单价（自动获取，随选择即时更新）
-    sel = model_by_id.get(model)
+    chosen_model = custom_model.strip() if model == CUSTOM_MODEL else model
+    sel = model_by_id.get(chosen_model)
     if sel:
         st.markdown(f":material/sell: **{sel['name']}** · `{sel['id']}`")
         st.markdown(f"输入 **{sel['input_price']}** USD/1M tokens · 输出 **{sel['output_price']}** USD/1M tokens")
         if sel.get("description"):
             st.caption(sel["description"])
     else:
-        st.caption(f"模型「{model}」不在目录中（自定义模型），单价按已存配置计算。")
+        st.caption(f"模型「{chosen_model or '未填写'}」不在目录中（自定义模型），单价按已存配置计算。")
     fx_src = {"frankfurter": "实时汇率（Frankfurter/ECB）",
-              "builtin": "内置参考汇率（网络不可用）"}.get(cfg.get("fx_source"), cfg.get("fx_source") or "—")
-    st.caption(f"汇率 USD→CNY：**{cfg.get('fx_rate')}**（{fx_src}）· 模型目录来源：{source}")
+              "builtin": "内置参考汇率（实时获取失败，稍后自动重试）"}.get(cfg.get("fx_source"), cfg.get("fx_source") or "—")
+    src_label = {"openrouter": "OpenRouter 实时目录",
+                 "openrouter+builtin": "OpenRouter 实时目录 + 内置补充",
+                 "builtin": "内置离线目录"}.get(source, source)
+    st.caption(f"汇率 USD→CNY：**{cfg.get('fx_rate')}**（{fx_src}）· 模型目录来源：{src_label}")
     if submitted:
         try:
             data = client.put("/api/ai/model-config", json={
-                "provider_url": provider, "model": model, "api_key": key,
+                "provider_url": provider, "model": chosen_model, "api_key": key,
             })
             st.success(f"已保存：{data.get('model')}")
         except ApiClientError as exc:
