@@ -7,6 +7,17 @@
 双击 **`start.cmd`**：WSL 起后端（:8000）→ 前端 Streamlit（:8501）→ 自动打开浏览器。
 停止后端：`stop.cmd`（后端为后台进程，无独立窗口）。详细使用见 `reports/USER_GUIDE.md`。
 
+## 前端页面（polish 2026-09-08）
+
+- **登录/注册**：未登录时全画幅居中卡片，注册成功自动登录并进入题库；刷新页面自动恢复登录态（浏览器 Cookie）。
+- **侧边栏**：题库 / 题目管理 / 个人 三项圆角导航按钮（单击切换），紫黄简约主题。
+- **题库**：登录后默认页。分页圆角卡片（编号、难度、标签、通过率条状），按编号/标题搜索；点击进入题目详情。
+- **题目详情（二级页）**：左侧题面（描述/输入输出/样例/约束），右侧栏提交代码（语言选择 + 大文本框 + 黄色"提交评测"）、近 3 次提交（自动刷新）与"查询提交记录"入口。
+- **查询提交记录**：从题目右侧栏或"个人"页进入。按题目/状态筛选，时间倒序，结果自动刷新；管理员可查所有用户提交并重新评测。
+- **题目管理**：编号/标题搜索、每题编辑/删除图标、新增题目与 AI 命题入口；普通用户改/删走申请审批，管理员审批执行。
+- **个人**：信息卡 + 查询入口；管理员可进行用户管理与申请审批。
+- 启动后端时按 id 幂等种入示例题 **Hello World（P1000）** 与 **A+B（P1001）**；删除后重启后端恢复。
+
 ## 目录结构
 
 ```
@@ -14,13 +25,15 @@
 ├── backend/            # FastAPI 后端（源码，端口 8000）
 │   ├── app/
 │   │   ├── core/       # 统一响应、异常处理、密码哈希（bcrypt）
-│   │   ├── db/         # 全 JSON 存储层、初始管理员种子
+│   │   ├── db/         # 全 JSON 存储层、初始管理员/示例题种子
 │   │   ├── api/        # REST 路由（/api/*）
 │   │   └── config.py   # 数据目录 / 初始管理员等全局配置
-│   ├── tests/          # pytest 冒烟测试
+│   ├── tests/          # pytest 测试
 │   ├── conftest.py
 │   └── main.py         # FastAPI 入口
-├── frontend/           # Streamlit 前端（端口 8501，D6 起实现）
+├── frontend/           # Streamlit 前端（端口 8501，app.py + api_client.py）
+├── scripts/            # 启动/冒烟脚本（start-backend.sh、app_smoke.py）
+├── polish/             # polish 计划与打磨说明
 ├── reports/            # 面向用户的文档（需求分析、进度计划、每日实现说明…）
 └── requirements.txt    # Python 依赖（venv: .venv/，Python 3.14）
 ```
@@ -33,10 +46,14 @@
 # 后端依赖（Windows：.venv；WSL Linux：~/oj-venv —— 评测需 Linux，推荐 WSL）
 #  WSL 首次：wsl python3 -m venv ~/oj-venv && wsl ~/oj-venv/bin/pip install fastapi "uvicorn[standard]" pydantic httpx pytest psutil bcrypt python-multipart
 wsl ~/oj-venv/bin/python -m pytest tests -q              # 全量测试（Linux，含评测执行）
+.venv/Scripts/python.exe -m pytest backend/tests -q      # Windows 侧后端测试
 
 # 启动后端（backend/ 目录下；8000 端口）
 wsl ~/oj-venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000
 # Windows 侧备用：../.venv/Scripts/python.exe -m uvicorn main:app --port 8000（评测执行不可用）
+
+# 前端冒烟测试（需后端已在 8000 运行；会注册一次性用户 smokeuser 并真实提交）
+.venv/Scripts/python.exe scripts/app_smoke.py
 ```
 
 > Windows 与 WSL 双环境提示：venv 为 Windows 原生（`.venv/Scripts/`）；在 WSL 内

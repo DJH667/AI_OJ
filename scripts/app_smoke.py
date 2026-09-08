@@ -3,7 +3,7 @@
 前置：
 - 后端已启动（WSL：cd backend && ~/oj-venv/bin/python -m uvicorn main:app --port 8000）；
 - 题库已种入 P1000/P1001（后端启动自动种入）；
-- 运行：cd 仓库根 && .venv/Scripts/python.exe polish/app_smoke.py（Windows venv 含 streamlit）。
+- 运行：cd 仓库根 && .venv/Scripts/python.exe scripts/app_smoke.py（Windows venv 含 streamlit）。
 
 说明：脚本会注册一次性用户 smokeuser 并真实提交评测，产生少量演示数据；
 验收/演示前如需干净环境，删除 backend/data/ 下 smokeuser 相关文件即可
