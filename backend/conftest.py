@@ -12,5 +12,10 @@ from pathlib import Path
 os.environ["OJ_SEED_DEMO"] = "0"
 
 BACKEND_DIR = Path(__file__).resolve().parent
+# 测试使用独立数据目录（polish 2026-09-09）：pytest 的 reset 不再清空
+# backend/data 下的真实运行期数据（用户 session/题库/通知），避免与
+# 正在运行的后端互相干扰。
+os.environ["OJ_DATA_DIR"] = str(BACKEND_DIR / "data_test")
+
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))

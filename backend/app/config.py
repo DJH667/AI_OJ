@@ -11,7 +11,9 @@ from pathlib import Path
 import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent  # backend/
-DATA_DIR = BASE_DIR / "data"
+# 运行期数据目录：默认 backend/data；测试/隔离环境可用 OJ_DATA_DIR 覆盖，
+# 避免 pytest 的 reset 清空真实运行期数据（用户 session/题库等）。
+DATA_DIR = Path(os.environ.get("OJ_DATA_DIR") or (BASE_DIR / "data"))
 
 PROBLEMS_DIR = DATA_DIR / "problems"        # 题目：每题一个 JSON
 USERS_DIR = DATA_DIR / "users"              # 用户：每个用户名一个 JSON

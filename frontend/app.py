@@ -459,7 +459,7 @@ def _unread_count_safe() -> int:
     """侧边栏个人项未读消息数（后端无该接口/未重启时回退 0）。"""
     try:
         return int(get_client().get("/api/notifications/unread-count").get("unread", 0))
-    except (ApiClientError, TypeError, ValueError):
+    except Exception:
         return 0
 
 
@@ -497,6 +497,9 @@ def _restore_session() -> bool:
     except ApiClientError as exc:
         if str(exc).startswith("401"):
             st.session_state["clear_session_cookie"] = True
+        return False
+    except Exception:
+        # 后端未启动/网络异常：本次先回到登录页，不崩溃、不清 Cookie
         return False
     st.session_state["user"] = data
     return True

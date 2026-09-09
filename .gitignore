@@ -6,6 +6,7 @@ venv/
 
 # ---------- 运行期数据（全 JSON 存储，不进 git）----------
 data/
+data_test/
 problems/
 users/
 submissions/
