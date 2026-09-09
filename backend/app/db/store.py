@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import shutil
+import time
 from pathlib import Path
 from typing import Any, Dict, Iterator, Optional, Tuple
 from urllib.parse import quote, unquote
@@ -37,12 +38,21 @@ def save_json(directory: Path, key: str, data: Dict[str, Any]) -> None:
     """原子写入：先写同目录临时文件再 os.replace（评审意见 P3，2026-09-03）。
 
     避免进程中断留下半截 JSON；数据量增大（题目/提交）后仍保持健壮。
+    Windows 上若目标文件正被并发读（如 AI 任务轮询读、评测线程读），
+    os.replace 可能短暂 PermissionError，这里做小退避重试。
     """
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / f"{encode_key(key)}.json"
     tmp = directory / f".{encode_key(key)}.tmp"
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, target)
+    for attempt in range(10):
+        try:
+            os.replace(tmp, target)
+            return
+        except PermissionError:
+            if attempt == 9:
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 def load_json(directory: Path, key: str) -> Optional[Dict[str, Any]]:
