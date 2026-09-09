@@ -23,16 +23,35 @@ SYSTEM_PROMPT = """你是一个 OJ 命题助手。严格只输出一个 JSON（�
   "testcases": [{"input": "...", "output": "..."}],   // 完整评测点：必须给出全部、含规模梯度（小/中/大），大点应能区分不同复杂度算法；数据不得有错误
   "time_limit": 1.0, "memory_limit": 128,
   "difficulty_score": 数字,
-  "language": "题目/代码语言（必须是已支持语言）",
+  "language": "题目/代码语言（从用户消息中的已注册语言列表选择）",
   "meta": {
     "std_solution": "用所选语言编写的正解代码",
-    "brute_solution": "用所选语言编写的朴素/暴力对照代码（小数据规模）",
-    "generator": "用所选语言编写的测试数据生成器：向 stdout 输出 JSON 数组 [{\\"input\\": \\"...\\", \\"small\\": true|false}]；large 输入规模应足以使较劣复杂度（如 O(n^2)）超时"
+    "brute_solution": "用所选语言编写的朴素/暴力对照代码（仅小规模数据可过）",
+    "generator": "用所选语言编写的测试数据生成器：向 stdout 输出 JSON 数组 [{\\"input\\": \\"...\\", \\"small\\": true|false}]"
   }
 }
-要求：题目与输入的知识点/难度/预期复杂度/数据规模一致；samples 清晰；testcases 覆盖边界并含多档规模；
-除硬核对拍所需 meta 外，代码均须为能通过评测的所选语言。若用户要求了未支持/未注册的语言，
-不要生成题目，直接输出 {"error": "language not supported: <语言>"}。"""
+要求：
+- 题目知识点/难度/预期复杂度/数据规模一致；samples 清晰；testcases 覆盖边界并含多档规模；
+- 目标语言、已注册语言列表、数据规模与性能要求均以用户消息为准；
+- 若无法按要求完成（如语言不在已注册列表中），输出 {"error": "简短原因"}，不要生成题目。"""
+
+
+def _language_perf_note(language_name: str | None) -> str:
+    """按目标语言给出数据规模/性能提示，避免模型按 C++ 规模出题导致 Python 超时。"""
+    lang = (language_name or "").strip().lower()
+    if lang in ("python", "python3", "py"):
+        return (
+            "性能提示：目标语言为 Python（解释执行，比 C++ 慢约一个数量级）。"
+            "设计数据规模与时间限制时，必须保证 Python 正解在 time_limit 内可过、"
+            "且较劣复杂度（如 O(n^2)）在大点超时；不要按 C++ 的规模假设给 Python 出题。"
+        )
+    if lang in ("cpp", "c++", "c"):
+        return ("性能提示：目标语言为 C++（编译执行），数据规模可按常规算法题设计，"
+                "仍须保证正解可过、较劣复杂度算法在大点超时。")
+    if lang:
+        return (f"性能提示：目标语言为 {lang}，数据规模须保证正解在 time_limit 内可过、"
+                "较劣复杂度算法在大点超时。")
+    return "性能提示：数据规模须保证所选语言的正解在 time_limit 内可过、较劣复杂度算法在大点超时。"
 
 
 def _fence_strip(content: str) -> str:
@@ -119,9 +138,18 @@ def run_task(task_id: str) -> None:
 
     try:
         ref = _reference_context(task.get("problem_id"))
+        available_langs = languages.all_names()
+        langs_text = "、".join(available_langs) or "（无已注册语言）"
+        target_lang = task.get("language")
+        if target_lang:
+            lang_line = f"目标语言：{target_lang}（必须从已注册语言列表中选择）"
+        else:
+            lang_line = "目标语言：由你从已注册语言列表中选择一个，并在 language 字段给出"
         user_prompt = (
             f"命题需求：{task.get('requirement')}\n"
-            f"语言：{task.get('language') or '（由你按需选择已支持语言）'}\n"
+            f"已注册语言列表：{langs_text}\n"
+            f"{lang_line}\n"
+            f"{_language_perf_note(target_lang)}\n"
             + ref
             + ("模式：硬核（必须给出 meta 三代码，测试点须经对拍校验）" if task.get("hardcore")
                else "模式：普通（直接给出完整 samples 与 testcases）")
@@ -189,10 +217,11 @@ def run_task(task_id: str) -> None:
                            review=True, review_note=f"对拍 {attempt} 次未通过，请人工复核：{exc}",
                            result=None)
                     return
-                messages = messages[:1] + [{
-                    "role": "user",
-                    "content": f"对拍未通过（第 {attempt} 次），错误摘要：{exc}\n请修正代码/生成器后重新只输出完整 JSON。",
-                }]
+                messages = messages[:1] + [
+                    {"role": "user", "content": user_prompt},
+                    {"role": "user",
+                     "content": f"对拍未通过（第 {attempt} 次），错误摘要：{exc}\n请修正代码/生成器后重新只输出完整 JSON。"},
+                ]
                 continue
             # 对拍通过：以对拍集作为 testcases（无错误数据、含梯度）
             if _guard_interrupted(task_id):

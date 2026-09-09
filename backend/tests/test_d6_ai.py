@@ -176,6 +176,23 @@ def test_task_language_not_supported_fails(client, monkeypatch):
     assert "language not supported: java" in data["error"]
 
 
+def test_prompt_contains_registered_languages_and_perf_note(client, monkeypatch):
+    captured = {}
+
+    def fake_chat(messages, username, temperature=0.2):
+        captured["messages"] = messages
+        return {"content": json.dumps(_fake_problem()),
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5}, "mock": True}
+
+    monkeypatch.setattr(llm_client, "chat", fake_chat)
+    r = client.post("/api/ai/problem-tasks/", json={"requirement": "一道求和题", "language": "python"})
+    assert r.status_code == 200
+    _wait_task(client, r.json()["data"]["task_id"])
+    user_content = captured["messages"][1]["content"]
+    assert "已注册语言列表" in user_content and "python" in user_content
+    assert "性能提示" in user_content and "C++" in user_content
+
+
 # ---------- 权限 / 中断 ----------
 
 def test_task_permissions_and_cancel(client):
