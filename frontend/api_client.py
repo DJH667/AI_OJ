@@ -27,11 +27,23 @@ class ApiClient:
     # ---- 会话 ----
     @property
     def session_id(self) -> str | None:
-        """后端会话 id（Cookie jar 中），用于浏览器 Cookie 持久化。"""
-        return self._http.cookies.get(SESSION_COOKIE)
+        """后端会话 id（Cookie jar 中），用于浏览器 Cookie 持久化。
+
+        直接遍历 jar 取同名 cookie，避免存在多个同名（不同 domain/path）cookie 时
+        httpx.Cookies.get 抛 CookieConflict。
+        """
+        for cookie in self._http.cookies.jar:
+            if cookie.name == SESSION_COOKIE:
+                return cookie.value
+        return None
 
     def set_session_id(self, sid: str) -> None:
-        """把浏览器 Cookie 里的会话 id 种回 Cookie jar（刷新后恢复登录态）。"""
+        """把浏览器 Cookie 里的会话 id 种回 Cookie jar（刷新后恢复登录态）。
+
+        先清空 jar 再写入，防止与后端 Set-Cookie 产生的同名 cookie 并存，
+        引发 CookieConflict。
+        """
+        self._http.cookies.clear()
         self._http.cookies.set(SESSION_COOKIE, sid, path="/")
 
     def login(self, username: str, password: str) -> dict:
