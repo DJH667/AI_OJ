@@ -295,7 +295,7 @@ def _dump(obj) -> str:
 
 def _reset_sub_state() -> None:
     """切换一级页面时清理所有二级页面状态（题库页码除外）。"""
-    for key in ("view_problem_id", "submit_open", "manage_action", "ai_open",
+    for key in ("view_problem_id", "submit_open", "manage_action", "ai_open", "langs_open",
                 "query_problem_id", "query_params", "query_page", "query_detail_sid",
                 "prefill_problem", "prefill_score"):
         st.session_state.pop(key, None)
@@ -930,6 +930,9 @@ def render_manage_page() -> None:
     if st.session_state.get("ai_open"):
         render_ai_page()
         return
+    if st.session_state.get("langs_open"):
+        render_languages_page()
+        return
     action = st.session_state.get("manage_action")
     if action == "new":
         render_problem_form_page(None)
@@ -943,9 +946,12 @@ def render_manage_page() -> None:
     search_col, btn_col = st.columns([2.6, 1], vertical_alignment="bottom")
     search = search_col.text_input("搜索题目", placeholder="按编号或标题关键词搜索（仅匹配标题）",
                                    label_visibility="collapsed")
-    ai_col, new_col = btn_col.columns(2)
+    ai_col, lang_col, new_col = btn_col.columns(3)
     if ai_col.button(":material/auto_awesome: AI 命题", key="open_ai", width="stretch"):
         st.session_state["ai_open"] = True
+        st.rerun()
+    if lang_col.button(":material/translate: 语言管理", key="open_langs", width="stretch"):
+        st.session_state["langs_open"] = True
         st.rerun()
     if new_col.button(":material/add: 新增题目", key="new_problem", type="primary", width="stretch"):
         st.session_state["manage_action"] = "new"
@@ -979,6 +985,62 @@ def render_manage_page() -> None:
         matched = problems
     for p in matched:
         _render_manage_card(p, pending_map)
+
+
+def render_languages_page() -> None:
+    st.title("语言管理", icon=":material/translate:")
+    if st.button(":material/arrow_back: 返回题目管理", key="back_langs"):
+        st.session_state.pop("langs_open", None)
+        st.rerun()
+    client = get_client()
+    try:
+        names = client.get("/api/languages/").get("name", [])
+    except ApiClientError as exc:
+        _err(exc)
+        return
+
+    st.subheader("已注册语言")
+    if not names:
+        st.caption("暂无语言")
+    else:
+        st.markdown("、".join(f"`{n}`" for n in names))
+
+    st.divider()
+    st.subheader("注册新语言")
+    st.caption("任意已登录用户可注册。命令模板中 {src}/{exe} 会被替换为路径（如 ./main.cpp 而非 main.cpp）；"
+               "解释型语言留空 compile_cmd。")
+    with st.form("lang_form", border=False):
+        c1, c2 = st.columns(2)
+        name = c1.text_input("name *", placeholder="如 go")
+        file_ext = c2.text_input("file_ext *", placeholder="如 .go")
+        compile_cmd = st.text_input("compile_cmd（可选）", placeholder="如 g++ {src} -o {exe}")
+        run_cmd = st.text_input("run_cmd *", placeholder="如 python3 {src} 或 {exe}")
+        c3, c4 = st.columns(2)
+        time_limit = c3.number_input("time_limit（秒，可选）", min_value=0.1, value=3.0,
+                                     step=0.5, format="%.1f")
+        memory_limit = c4.number_input("memory_limit（MB，可选）", min_value=16, value=128, step=64)
+        submitted = st.form_submit_button("注册语言", type="primary", width="stretch")
+    if not submitted:
+        return
+    if not (name.strip() and file_ext.strip() and run_cmd.strip()):
+        st.error("name / file_ext / run_cmd 为必填")
+        return
+    body = {
+        "name": name.strip(),
+        "file_ext": file_ext.strip(),
+        "run_cmd": run_cmd.strip(),
+        "time_limit": float(time_limit),
+        "memory_limit": int(memory_limit),
+    }
+    if compile_cmd.strip():
+        body["compile_cmd"] = compile_cmd.strip()
+    try:
+        data = client.post("/api/languages/", json=body)
+        _clear_caches()
+        _flash(f"语言已注册：{data.get('name')}")
+        st.rerun()
+    except ApiClientError as exc:
+        _err(exc)
 
 
 def _pending_apply_map(client) -> dict[str, set[str]]:
