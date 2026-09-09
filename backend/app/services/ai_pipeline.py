@@ -17,7 +17,6 @@ from app.services import ai_config, ai_tasks, ai_verify, languages, llm_client, 
 
 SYSTEM_PROMPT = """你是一个 OJ 命题助手。严格只输出一个 JSON 对象（不要代码块围栏、不要任何前后文字），结构如下：
 {
-  "id": "短横线小写标识",
   "title": "题目标题",
   "description": "题目描述正文（不含提示）",
   "input_description": "输入格式说明",
@@ -38,6 +37,7 @@ SYSTEM_PROMPT = """你是一个 OJ 命题助手。严格只输出一个 JSON 对
 }
 要求：
 - 输出必须是合法 JSON：字符串内的换行与双引号要转义，不要尾逗号、不要注释；
+- 不要输出 id 字段，题目编号由网站自动分配；
 - 题目知识点/难度/预期复杂度/数据规模一致；samples 清晰；testcases 覆盖边界并含多档规模（小/中/大），大点应能区分不同复杂度算法，数据不得有错误；
 - 提示性文字只放在 hint 字段，description 只写题目描述本身，不要把提示混入 description；
 - meta 仅在硬核模式需要：generator 向 stdout 输出 JSON 数组（元素形如 {"input": "...", "small": true|false}），std_solution 为正解，brute_solution 为仅小规模可过的暴力对照；
@@ -323,6 +323,7 @@ def run_task(task_id: str) -> None:
             problem["language"] = language_name
 
             if not task.get("hardcore"):
+                problem["id"] = problems.next_problem_id()
                 finish(ai_tasks.STATUS_COMPLETED, "命题完成", phase="completed", result=problem)
                 return
 
@@ -355,6 +356,7 @@ def run_task(task_id: str) -> None:
             # 对拍通过：以对拍集作为 testcases（无错误数据、含梯度）
             if _guard_interrupted(task_id):
                 return
+            problem["id"] = problems.next_problem_id()
             problem["testcases"] = verified
             finish(ai_tasks.STATUS_COMPLETED, "对拍通过，命题完成", phase="completed", result=problem)
             return

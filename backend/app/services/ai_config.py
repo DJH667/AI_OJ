@@ -62,10 +62,16 @@ def update(username: str, body: dict) -> dict:
     model = str(body["model"]).strip()
     catalog_items, source = ai_catalog.fetch_catalog()
     pricing = next((m for m in catalog_items if m["id"] == model), None)
+    # Key 为空且已有配置时保持原 Key，避免前端刷新后用户未重填而误清空
+    api_key = body["api_key"]
+    if not api_key:
+        existing_key = _load(username).get("api_key")
+        if existing_key:
+            api_key = existing_key
     cfg = {
         "provider_url": str(body["provider_url"]).strip().rstrip("/"),
         "model": model,
-        "api_key": body["api_key"],
+        "api_key": api_key,
         "input_price": pricing["input_price"] if pricing else 0.0,
         "output_price": pricing["output_price"] if pricing else 0.0,
         "price_unit": ai_catalog.PRICE_UNIT,

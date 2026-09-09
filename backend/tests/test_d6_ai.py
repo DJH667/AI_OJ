@@ -106,6 +106,17 @@ def test_model_config_roundtrip_hides_key(client):
     assert client.get("/api/ai/model-config").json()["data"]["api_key_configured"] is True
 
 
+def test_model_config_preserves_key_when_saved_empty(client):
+    assert client.put("/api/ai/model-config", json={
+        "provider_url": "https://api.deepseek.com", "model": "deepseek-v4-flash", "api_key": "sk-keep",
+    }).status_code == 200
+    # 前端刷新后 Key 栏为空，再次保存不应误清空已存 Key
+    assert client.put("/api/ai/model-config", json={
+        "provider_url": "https://api.deepseek.com", "model": "deepseek-v4-flash", "api_key": "",
+    }).status_code == 200
+    assert ai_config.get_raw(config.ADMIN_USERNAME)["api_key"] == "sk-keep"
+
+
 # ---------- 普通任务（mock）----------
 
 def test_task_flow_normal_mock(client, monkeypatch):
@@ -118,7 +129,7 @@ def test_task_flow_normal_mock(client, monkeypatch):
     assert data["status"] == "completed"
     assert data["phase"] == "completed"
     assert data.get("started_at") and data.get("finished_at")
-    assert data["result"]["id"] == "AI-SUM"
+    assert data["result"]["id"].startswith("P") and data["result"]["id"] != "AI-SUM"
     assert data["usage"]["input_tokens"] == 100 and data["usage"]["cost"] >= 0
     assert data["usage"]["total_tokens"] == 130
     assert data["usage"]["currency"] == "CNY"
@@ -146,7 +157,7 @@ def test_task_json_parse_retry_then_completed(client, monkeypatch):
     data = _wait_task(client, r.json()["data"]["task_id"])
     assert data["status"] == "completed"
     assert data["attempts"] == 1
-    assert data["result"]["id"] == "AI-SUM"
+    assert data["result"]["id"].startswith("P") and data["result"]["id"] != "AI-SUM"
 
 
 def test_task_json_parse_retry_exhausted_fails(client, monkeypatch):

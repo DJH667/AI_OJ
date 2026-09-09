@@ -12,6 +12,8 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import re
+
 from pydantic import BaseModel, Field
 
 from app import config
@@ -138,6 +140,19 @@ def get(problem_id: str) -> Optional[dict]:
 
 def get_all() -> list[dict]:
     return [data for _, data in store.iter_all(config.PROBLEMS_DIR)]
+
+
+def next_problem_id() -> str:
+    """网站分配题目编号：取现存编号中最大数字后缀 +1，生成 P{max+1}。
+
+    AI 命题不再由模型返回 id，统一由此函数分配。
+    """
+    maximum = 0
+    for data in get_all():
+        match = re.search(r"(\d+)$", str(data.get("id", "")))
+        if match:
+            maximum = max(maximum, int(match.group(1)))
+    return f"P{maximum + 1}"
 
 
 def save(problem_id: str, data: dict) -> None:
