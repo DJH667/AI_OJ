@@ -16,6 +16,13 @@ STATUS_FAILED = "failed"
 
 TERMINAL_STATUSES = {STATUS_COMPLETED, STATUS_INTERRUPTED, STATUS_FAILED}
 
+# 对外可见字段（AI 监控页/查询接口）
+PUBLIC_FIELDS = (
+    "task_id", "status", "phase", "progress", "requirement", "language", "problem_id",
+    "hardcore", "attempts", "retry_limit", "ignore_complexity", "result", "review",
+    "review_note", "usage", "error", "created_at", "started_at", "finished_at", "updated_at",
+)
+
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
@@ -71,6 +78,17 @@ def save(task: dict) -> None:
 
 def get(task_id: str) -> dict | None:
     return store.load_json(config.AI_TASKS_DIR, task_id)
+
+
+def list_records(user_id: str | None = None) -> list[dict]:
+    """AI 任务列表（时间倒序）；user_id 为 None 时返回全部（管理员）。"""
+    items = []
+    for _, t in store.iter_all(config.AI_TASKS_DIR):
+        if user_id is not None and t.get("user_id") != user_id:
+            continue
+        items.append({k: t.get(k) for k in PUBLIC_FIELDS})
+    items.sort(key=lambda t: str(t.get("created_at", "")), reverse=True)
+    return items
 
 
 def set_status(task: dict, status: str, progress: str | None = None) -> None:

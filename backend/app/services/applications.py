@@ -104,17 +104,24 @@ def decide(application_id: str, decision: str, admin: dict) -> dict:
     """审批：accept → 执行对应题目操作；reject → 标记拒绝。
 
     执行失败（如题目已被删除、载荷非法）时自动标记为 rejected 并记录原因，
-    保证申请队列不会卡死。
+    保证申请队列不会卡死。审批结果写入信息中心通知申请人。
     """
+    from app.services import notifications
+
     record = get(application_id)
     if record is None:
         raise ApiError(404, messages.APPLICATION_NOT_FOUND)
     if record.get("status") != STATUS_PENDING:
         raise ApiError(409, messages.APPLICATION_ALREADY_DECIDED)
 
+    action_label = "修改" if record.get("action") == "edit" else "删除"
+    problem_label = record.get("problem_title") or record.get("problem_id")
+
     if decision == "reject":
         record.update(status=STATUS_REJECTED, decided_by=admin.get("username"), decision_note="")
         save(record)
+        notifications.create(record["user_id"], record["username"], "application",
+                             "申请已拒绝", f"你对《{problem_label}》的{action_label}申请已被拒绝。")
         return public(record)
 
     from app.services import problems
@@ -129,8 +136,15 @@ def decide(application_id: str, decision: str, admin: dict) -> dict:
         note = str(getattr(exc, "msg", None) or "") or "apply failed"
         record.update(status=STATUS_REJECTED, decided_by=admin.get("username"), decision_note=note[:200])
         save(record)
+        notifications.create(record["user_id"], record["username"], "application",
+                             "申请已拒绝（执行失败）",
+                             f"你对《{problem_label}》的{action_label}申请未能执行：{note[:120]}")
         return public(record)
 
     record.update(status=STATUS_ACCEPTED, decided_by=admin.get("username"))
     save(record)
+    # 修改通过 → 带 problem_id 供前端跳转到对应题目；删除通过 → 题目已不存在，仅文本提醒
+    notifications.create(record["user_id"], record["username"], "application",
+                         "申请已通过", f"你对《{problem_label}》的{action_label}申请已通过。",
+                         problem_id=record["problem_id"] if record.get("action") == "edit" else None)
     return public(record)

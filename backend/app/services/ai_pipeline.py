@@ -146,6 +146,16 @@ def run_task(task_id: str) -> None:
         t["usage"] = ai_config.estimate_cost(usage_acc, username)
         ai_tasks.save(t)
         ai_tasks.set_status(t, status, progress)
+        if status == ai_tasks.STATUS_COMPLETED:
+            from app.services import notifications
+
+            result = fields.get("result") or {}
+            title = "AI 命题需人工复核" if fields.get("review") else "AI 命题完成"
+            body = (f"《{result.get('title') or task.get('requirement', '')}》"
+                    + ("对拍未通过，请到 AI 命题监控查看。" if fields.get("review")
+                       else "已生成，可到 AI 命题监控查看并采纳。"))
+            notifications.create(t.get("user_id"), t.get("username"), "ai_task",
+                                 title, body, task_id=task_id)
 
     try:
         ref = _reference_context(task.get("problem_id"))
@@ -180,7 +190,18 @@ def run_task(task_id: str) -> None:
                 ai_tasks.set_phase(t, "generating", "正在生成题目与测试点")
             else:
                 ai_tasks.set_phase(t, "adjusting", f"对拍未通过，正在调整题目数据（第 {attempt} 次重试）")
-            resp = llm_client.chat(messages, username)
+
+            def progress_cb(est: dict) -> None:
+                """流式生成期间约每秒回调：把估算 token/费用落盘，前端轮询可见增长。"""
+                if _guard_interrupted(task_id):
+                    return
+                t2 = ai_tasks.get(task_id)
+                if t2 is None:
+                    return
+                t2["usage"] = ai_config.estimate_cost(est, username)
+                ai_tasks.save(t2)
+
+            resp = llm_client.chat(messages, username, on_progress=progress_cb)
             usage_acc["prompt_tokens"] += int(resp["usage"].get("prompt_tokens", 0))
             usage_acc["completion_tokens"] += int(resp["usage"].get("completion_tokens", 0))
             record_usage()  # 每轮调用后落盘 token/费用，前端轮询可见

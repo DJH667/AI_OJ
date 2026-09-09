@@ -109,7 +109,7 @@ def test_model_config_roundtrip_hides_key(client):
 # ---------- 普通任务（mock）----------
 
 def test_task_flow_normal_mock(client, monkeypatch):
-    monkeypatch.setattr(llm_client, "chat", lambda messages, username, temperature=0.2: {
+    monkeypatch.setattr(llm_client, "chat", lambda messages, username, temperature=0.2, on_progress=None: {
         "content": json.dumps(_fake_problem()), "usage": {"prompt_tokens": 100, "completion_tokens": 30}, "mock": True})
     r = client.post("/api/ai/problem-tasks/", json={"requirement": "一道求和题"})
     assert r.status_code == 200
@@ -134,7 +134,7 @@ def test_task_flow_normal_mock(client, monkeypatch):
 # ---------- 硬核：对拍通过 ----------
 
 def test_task_hardcore_verify_passes(client, monkeypatch):
-    monkeypatch.setattr(llm_client, "chat", lambda messages, username, temperature=0.2: {
+    monkeypatch.setattr(llm_client, "chat", lambda messages, username, temperature=0.2, on_progress=None: {
         "content": json.dumps(_fake_problem()), "usage": {"prompt_tokens": 200, "completion_tokens": 60}, "mock": True})
     r = client.post("/api/ai/problem-tasks/", json={"requirement": "a+b 题", "hardcore": True, "retry_limit": 1})
     task_id = r.json()["data"]["task_id"]
@@ -151,7 +151,7 @@ def test_task_hardcore_verify_passes(client, monkeypatch):
 def test_task_hardcore_review_when_verify_fails(client, monkeypatch):
     bad = _fake_problem()
     bad["meta"] = {"note": "no codes"}  # 缺 generator/std/brute → verify 必失败
-    monkeypatch.setattr(llm_client, "chat", lambda messages, username, temperature=0.2: {
+    monkeypatch.setattr(llm_client, "chat", lambda messages, username, temperature=0.2, on_progress=None: {
         "content": json.dumps(bad), "usage": {"prompt_tokens": 50, "completion_tokens": 10}, "mock": True})
     r = client.post("/api/ai/problem-tasks/", json={"requirement": "x", "hardcore": True, "retry_limit": 1})
     task_id = r.json()["data"]["task_id"]
@@ -167,7 +167,7 @@ def test_task_hardcore_review_when_verify_fails(client, monkeypatch):
 
 def test_task_language_not_supported_fails(client, monkeypatch):
     p = _fake_problem(language="java")  # 结构化未带 language → 走产出兜底校验
-    monkeypatch.setattr(llm_client, "chat", lambda messages, username, temperature=0.2: {
+    monkeypatch.setattr(llm_client, "chat", lambda messages, username, temperature=0.2, on_progress=None: {
         "content": json.dumps(p), "usage": {"prompt_tokens": 30, "completion_tokens": 5}, "mock": True})
     r = client.post("/api/ai/problem-tasks/", json={"requirement": "x"})
     task_id = r.json()["data"]["task_id"]
@@ -179,7 +179,7 @@ def test_task_language_not_supported_fails(client, monkeypatch):
 def test_prompt_contains_registered_languages_and_perf_note(client, monkeypatch):
     captured = {}
 
-    def fake_chat(messages, username, temperature=0.2):
+    def fake_chat(messages, username, temperature=0.2, on_progress=None):
         captured["messages"] = messages
         return {"content": json.dumps(_fake_problem()),
                 "usage": {"prompt_tokens": 10, "completion_tokens": 5}, "mock": True}
@@ -196,7 +196,7 @@ def test_prompt_contains_registered_languages_and_perf_note(client, monkeypatch)
 def test_prompt_ignore_complexity_emphasizes_edge_cases(client, monkeypatch):
     captured = {}
 
-    def fake_chat(messages, username, temperature=0.2):
+    def fake_chat(messages, username, temperature=0.2, on_progress=None):
         captured["messages"] = messages
         return {"content": json.dumps(_fake_problem()),
                 "usage": {"prompt_tokens": 10, "completion_tokens": 5}, "mock": True}
@@ -257,7 +257,7 @@ def test_task_normal_cancel_effective(client, monkeypatch):
     """P1（评审 9.7）：普通任务在运行中被 cancel → 最终 interrupted（不被 completed 覆盖）。"""
     import time as _t
 
-    def _slow_chat(messages, username, temperature=0.2):
+    def _slow_chat(messages, username, temperature=0.2, on_progress=None):
         _t.sleep(0.6)
         return {"content": json.dumps(_fake_problem()), "usage": {"prompt_tokens": 10, "completion_tokens": 5}, "mock": True}
 

@@ -49,3 +49,6 @@ APPLICATION_NOT_FOUND = "application not found"
 APPLICATION_ALREADY_PENDING = "pending application already exists"
 APPLICATION_ALREADY_DECIDED = "application already decided"
 INVALID_ACTION = "invalid action"
+
+# 信息中心（polish 2026-09-09）
+NOTIFICATION_NOT_FOUND = "notification not found"

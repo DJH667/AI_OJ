@@ -82,6 +82,14 @@ def _task_or_403(task_id: str, current: dict) -> dict:
     return task
 
 
+@router.get("/api/ai/problem-tasks/")
+async def list_tasks(current: dict = Depends(get_current_user)):
+    """AI 任务列表（普通用户=自己的；管理员=全部；时间倒序，供 AI 监控页）。"""
+    user_id = None if current["role"] == "admin" else current["user_id"]
+    tasks = ai_tasks.list_records(user_id)
+    return success(msg="success", data={"total": len(tasks), "tasks": tasks})
+
+
 @router.get("/api/ai/problem-tasks/{task_id}")
 async def get_task(task_id: str, current: dict = Depends(get_current_user)):
     task = _task_or_403(task_id, current)

@@ -24,6 +24,7 @@ SESSIONS_DIR = DATA_DIR / "sessions"        # 服务端 session（D2 使用）
 AI_TASKS_DIR = DATA_DIR / "ai_tasks"        # AI 命题任务（测试数据，reset 清空）
 AI_CONFIGS_DIR = DATA_DIR / "ai_configs"    # AI 模型配置（per-user，系统配置，reset 不清）
 APPLICATIONS_DIR = DATA_DIR / "applications"  # 题目修改/删除申请（polish 2026-09-08，reset 清空）
+NOTIFICATIONS_DIR = DATA_DIR / "notifications"  # 信息中心通知（polish 2026-09-09，reset 清空）
 
 # 版本库内的示例题（开发联调用，不自动导入；运行时题目库在 PROBLEMS_DIR）
 SAMPLE_PROBLEMS_DIR = BASE_DIR / "sample_problems"
@@ -40,6 +41,7 @@ ALL_DATA_DIRS = [
     SESSIONS_DIR,
     AI_TASKS_DIR,
     APPLICATIONS_DIR,
+    NOTIFICATIONS_DIR,
 ]
 
 # 初始管理员（api.md：系统启动自动创建；密码 17 位全小写，满足注册校验）
