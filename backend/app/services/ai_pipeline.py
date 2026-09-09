@@ -213,6 +213,7 @@ def run_task(task_id: str) -> None:
         ]
         max_calls = (task.get("retry_limit", 0) or 0) + 1  # retry_limit 为额外重试次数
         attempt = 0
+        retry_reason = "对拍未通过"
 
         while True:
             if _guard_interrupted(task_id):
@@ -221,7 +222,7 @@ def run_task(task_id: str) -> None:
             if attempt == 0:
                 ai_tasks.set_phase(t, "generating", "正在生成题目与测试点")
             else:
-                ai_tasks.set_phase(t, "adjusting", f"对拍未通过，正在调整题目数据（第 {attempt} 次重试）")
+                ai_tasks.set_phase(t, "adjusting", f"{retry_reason}，正在调整题目数据（第 {attempt} 次重试）")
 
             def progress_cb(est: dict) -> None:
                 """流式生成期间约每秒回调：把估算 token/费用落盘，前端轮询可见增长。"""
@@ -243,8 +244,23 @@ def run_task(task_id: str) -> None:
             try:
                 problem = _parse_problem(resp["content"])
             except ValueError as exc:
-                finish(ai_tasks.STATUS_FAILED, "解析失败", phase="failed", error=str(exc), result=None)
-                return
+                t = ai_tasks.get(task_id)
+                if _guard_interrupted(task_id):
+                    return
+                t["attempts"] = t.get("attempts", 0) + 1
+                attempt = t["attempts"]
+                ai_tasks.save(t)
+                if attempt >= max_calls:
+                    finish(ai_tasks.STATUS_FAILED, "解析失败", phase="failed",
+                           error=f"多次输出非法 JSON：{exc}", result=None)
+                    return
+                retry_reason = "JSON 解析失败"
+                messages = messages[:1] + [
+                    {"role": "user", "content": user_prompt},
+                    {"role": "user",
+                     "content": f"你上次的输出不是合法 JSON（{exc}）。请重新严格只输出完整 JSON，不要代码块围栏或额外文字。"},
+                ]
+                continue
             if problem.get("error"):
                 finish(ai_tasks.STATUS_FAILED, "模型拒绝（语言不支持等）", phase="failed",
                        error=str(problem["error"]), result=None)
@@ -281,6 +297,7 @@ def run_task(task_id: str) -> None:
                            review=True, review_note=f"对拍 {attempt} 次未通过，请人工复核：{exc}",
                            result=None)
                     return
+                retry_reason = "对拍未通过"
                 messages = messages[:1] + [
                     {"role": "user", "content": user_prompt},
                     {"role": "user",

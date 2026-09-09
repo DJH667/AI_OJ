@@ -131,6 +131,35 @@ def test_task_flow_normal_mock(client, monkeypatch):
     assert anon.post("/api/ai/problem-tasks/", json={"requirement": "x"}).status_code == 401
 
 
+def test_task_json_parse_retry_then_completed(client, monkeypatch):
+    calls = {"n": 0}
+
+    def flaky_chat(messages, username, temperature=0.2, on_progress=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"content": "not-json", "usage": {"prompt_tokens": 10, "completion_tokens": 2}, "mock": True}
+        return {"content": json.dumps(_fake_problem()),
+                "usage": {"prompt_tokens": 20, "completion_tokens": 4}, "mock": True}
+
+    monkeypatch.setattr(llm_client, "chat", flaky_chat)
+    r = client.post("/api/ai/problem-tasks/", json={"requirement": "一道求和题", "retry_limit": 2})
+    data = _wait_task(client, r.json()["data"]["task_id"])
+    assert data["status"] == "completed"
+    assert data["attempts"] == 1
+    assert data["result"]["id"] == "AI-SUM"
+
+
+def test_task_json_parse_retry_exhausted_fails(client, monkeypatch):
+    monkeypatch.setattr(llm_client, "chat",
+                        lambda messages, username, temperature=0.2, on_progress=None: {
+                            "content": "not-json",
+                            "usage": {"prompt_tokens": 10, "completion_tokens": 2}, "mock": True})
+    r = client.post("/api/ai/problem-tasks/", json={"requirement": "一道求和题", "retry_limit": 1})
+    data = _wait_task(client, r.json()["data"]["task_id"])
+    assert data["status"] == "failed"
+    assert "非法 JSON" in data["error"]
+
+
 # ---------- 硬核：对拍通过 ----------
 
 def test_task_hardcore_verify_passes(client, monkeypatch):

@@ -1456,9 +1456,8 @@ def render_ai_page() -> None:
         c4, c5 = st.columns(2)
         with c4:
             hardcore = st.checkbox("硬核模式（对拍校验测试数据）", value=False, key="hardcore")
-        if hardcore:
-            with c5:
-                retry_limit = st.slider("对拍重试次数", 0, 5, 2)
+        with c5:
+            retry_limit = st.slider("重试次数（JSON/对拍失败）", 0, 5, 2)
         parts = [f"题目要求：{background or '设计一道算法题'}", f"难度分：{difficulty}/10"]
         if tags:
             parts.append(f"考点：{'、'.join(t for t in tags if t != '其他')}")
@@ -1477,9 +1476,8 @@ def render_ai_page() -> None:
         c6, c7 = st.columns(2)
         with c6:
             hardcore = st.checkbox("硬核模式（对拍校验测试数据）", value=False, key="hardcore_txt")
-        if hardcore:
-            with c7:
-                retry_limit = st.slider("对拍重试次数", 0, 5, 2, key="retry_txt")
+        with c7:
+            retry_limit = st.slider("重试次数（JSON/对拍失败）", 0, 5, 2, key="retry_txt")
 
     if st.button("🚀 生成题目", type="primary"):
         if not requirement.strip():
@@ -1562,8 +1560,10 @@ def render_task_progress(task_id: str) -> None:
     c4.metric("估算费用", f"¥{usage.get('cost', 0):.4f}")
     if usage.get("fx_rate"):
         st.caption(f"自动汇率 {usage['fx_rate']}（{usage.get('fx_source', '')}）· {usage.get('currency', 'CNY')}")
+    if data.get("attempts"):
+        st.caption(f"重试 {data.get('attempts', 0)} 次（最多 {data.get('retry_limit', 0) + 1} 次）")
     if data.get("hardcore"):
-        st.caption(f"硬核模式 · 对拍尝试 {data.get('attempts', 0)} 次（最多 {data.get('retry_limit', 0) + 1} 次）")
+        st.caption("硬核模式 · 对拍校验开启")
     if data.get("ignore_complexity"):
         st.caption("本题不考察复杂度（强化边界/极端用例）")
 
