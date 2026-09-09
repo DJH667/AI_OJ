@@ -23,6 +23,7 @@ SYSTEM_PROMPT = """你是一个 OJ 命题助手。严格只输出一个 JSON（�
   "testcases": [{"input": "...", "output": "..."}],   // 完整评测点：必须给出全部、含规模梯度（小/中/大），大点应能区分不同复杂度算法；数据不得有错误
   "time_limit": 1.0, "memory_limit": 128,
   "difficulty_score": 数字,
+  "hint": "可选提示（没有则留空字符串）",
   "language": "题目/代码语言（从用户消息中的已注册语言列表选择）",
   "meta": {
     "std_solution": "用所选语言编写的正解代码",
@@ -32,6 +33,7 @@ SYSTEM_PROMPT = """你是一个 OJ 命题助手。严格只输出一个 JSON（�
 }
 要求：
 - 题目知识点/难度/预期复杂度/数据规模一致；samples 清晰；testcases 覆盖边界并含多档规模；
+- 提示性文字只放在 hint 字段，description 只写题目描述本身，不要把提示混入 description；
 - 目标语言、已注册语言列表、数据规模与性能要求均以用户消息为准；
 - 若无法按要求完成（如语言不在已注册列表中），输出 {"error": "简短原因"}，不要生成题目。"""
 
@@ -77,6 +79,36 @@ def _fence_strip(content: str) -> str:
     return text.strip()
 
 
+def _normalize_hint_field(problem: dict) -> dict:
+    """防御：部分模型会把提示写进 description。若已有独立 hint 字段，
+    把 description 末尾与 hint 重复的段落去掉，避免题目描述混入提示。"""
+    desc = problem.get("description")
+    hint = problem.get("hint")
+    if not isinstance(desc, str) or not isinstance(hint, str) or not hint.strip():
+        return problem
+    desc_stripped = desc.strip()
+    hint_stripped = hint.strip()
+    if not desc_stripped:
+        return problem
+    for prefix in ("提示：", "hint:", "提示", "hint", "Hint", ""):
+        seg = f"{prefix}{hint_stripped}".strip()
+        if not seg:
+            continue
+        if desc_stripped == seg:
+            problem["description"] = ""
+            return problem
+        if desc_stripped.endswith(seg):
+            cut = desc_stripped[:-len(seg)].rstrip()
+            while cut and cut[-1] in ("：", ":", "。", "\n"):
+                cut = cut[:-1].rstrip()
+            for label in ("提示", "hint", "Hint"):
+                if cut.endswith(label):
+                    cut = cut[:-len(label)].rstrip()
+            problem["description"] = cut
+            return problem
+    return problem
+
+
 def _parse_problem(content: str) -> dict:
     try:
         problem = json.loads(_fence_strip(content))
@@ -84,7 +116,7 @@ def _parse_problem(content: str) -> dict:
         raise ValueError(f"model output is not valid JSON: {exc}") from exc
     if not isinstance(problem, dict):
         raise ValueError("model output is not a JSON object")
-    return problem
+    return _normalize_hint_field(problem)
 
 
 def _guard_interrupted(task_id: str) -> bool:

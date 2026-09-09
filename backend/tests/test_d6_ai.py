@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from main import app
 from app import config
-from app.services import ai_config, ai_tasks, llm_client
+from app.services import ai_config, ai_pipeline, ai_tasks, llm_client
 
 PASSWORD = "secret123"
 
@@ -174,6 +174,16 @@ def test_task_language_not_supported_fails(client, monkeypatch):
     data = _wait_task(client, task_id)
     assert data["status"] == "failed"
     assert "language not supported: java" in data["error"]
+
+
+def test_parse_problem_strips_hint_from_description():
+    problem = ai_pipeline._parse_problem(json.dumps({
+        "id": "P1", "title": "求和", "description": "求两个数的和\n提示：注意溢出",
+        "input_description": "两个整数", "output_description": "一个整数",
+        "samples": [], "constraints": "范围 1e9", "testcases": [], "hint": "注意溢出",
+    }))
+    assert problem["description"] == "求两个数的和"
+    assert problem["hint"] == "注意溢出"
 
 
 def test_prompt_contains_registered_languages_and_perf_note(client, monkeypatch):
