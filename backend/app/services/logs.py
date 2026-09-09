@@ -6,6 +6,7 @@
 - 查询：user_id/problem_id 至少其一（全空 400，助教确认 2026-09-03），分页语义同 submissions。
 """
 from datetime import datetime
+from secrets import token_hex
 
 from app import config
 from app.db import store
@@ -13,9 +14,13 @@ from app.services.pagination import normalize_page
 
 
 def record_access(user: dict, problem_id: str, status_code: int) -> None:
-    """记录一次日志访问（登录用户、资源存在前提下；200/403 均记录，便于审计"被拒"）。"""
+    """记录一次日志访问（登录用户、资源存在前提下；200/403 均记录，便于审计"被拒"）。
+
+    文件名 = 时间戳-用户 id-随机后缀：同用户同微秒多次访问也不会互相覆盖
+    （评审 2026-09-08 P3：access 审计文件名同微秒碰撞）。
+    """
     stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
-    store.save_json(config.ACCESS_LOGS_DIR, f"{stamp}-{user['user_id']}", {
+    store.save_json(config.ACCESS_LOGS_DIR, f"{stamp}-{user['user_id']}-{token_hex(4)}", {
         "user_id": user["user_id"],
         "username": user.get("username", ""),
         "problem_id": problem_id,
