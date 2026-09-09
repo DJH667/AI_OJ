@@ -215,6 +215,26 @@ def test_parse_problem_strips_hint_from_description():
     assert problem["hint"] == "注意溢出"
 
 
+def test_parse_problem_robust_extraction():
+    problem = ai_pipeline._parse_problem(
+        '好的，以下是题目：\n```json\n'
+        '{"id":"P1","title":"求和","description":"d","input_description":"i",'
+        '"output_description":"o","samples":[],"constraints":"c","testcases":[]}\n```'
+    )
+    assert problem["id"] == "P1"
+    problem2 = ai_pipeline._parse_problem('''{
+      "id": "P2", // 注释
+      "title": "t",
+      "description": "d",
+      "input_description": "i",
+      "output_description": "o",
+      "samples": [],
+      "constraints": "c",
+      "testcases": [],
+    }''')
+    assert problem2["id"] == "P2"
+
+
 def test_prompt_contains_registered_languages_and_perf_note(client, monkeypatch):
     captured = {}
 

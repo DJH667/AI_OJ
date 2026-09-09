@@ -11,29 +11,35 @@
 cancel 一旦置位即转 interrupted，后续阶段不再覆盖为 running/completed/failed。
 """
 import json
+import re
 
 from app.services import ai_config, ai_tasks, ai_verify, languages, llm_client, problems
 
-SYSTEM_PROMPT = """你是一个 OJ 命题助手。严格只输出一个 JSON（不要代码块围栏、不要额外文字），结构如下：
+SYSTEM_PROMPT = """你是一个 OJ 命题助手。严格只输出一个 JSON 对象（不要代码块围栏、不要任何前后文字），结构如下：
 {
-  "id": "短横线小写标识", "title": "...", "description": "...",
-  "input_description": "...", "output_description": "...",
-  "samples": [{"input": "...", "output": "..."}],
-  "constraints": "...",
-  "testcases": [{"input": "...", "output": "..."}],   // 完整评测点：必须给出全部、含规模梯度（小/中/大），大点应能区分不同复杂度算法；数据不得有错误
-  "time_limit": 1.0, "memory_limit": 128,
+  "id": "短横线小写标识",
+  "title": "题目标题",
+  "description": "题目描述正文（不含提示）",
+  "input_description": "输入格式说明",
+  "output_description": "输出格式说明",
+  "samples": [{"input": "样例输入", "output": "样例输出"}],
+  "constraints": "数据范围与限制",
+  "testcases": [{"input": "测试输入", "output": "测试输出"}],
+  "time_limit": 1.0,
+  "memory_limit": 128,
   "difficulty_score": 数字,
   "hint": "可选提示（没有则留空字符串）",
-  "language": "题目/代码语言（从用户消息中的已注册语言列表选择）",
+  "language": "题目/代码语言",
   "meta": {
-    "std_solution": "用所选语言编写的正解代码",
-    "brute_solution": "用所选语言编写的朴素/暴力对照代码（仅小规模数据可过）",
-    "generator": "用所选语言编写的测试数据生成器：向 stdout 输出 JSON 数组 [{\\"input\\": \\"...\\", \\"small\\": true|false}]"
+    "std_solution": "正解代码",
+    "brute_solution": "暴力对照代码",
+    "generator": "测试数据生成器代码"
   }
 }
 要求：
-- 题目知识点/难度/预期复杂度/数据规模一致；samples 清晰；testcases 覆盖边界并含多档规模；
+- 题目知识点/难度/预期复杂度/数据规模一致；samples 清晰；testcases 覆盖边界并含多档规模（小/中/大），大点应能区分不同复杂度算法，数据不得有错误；
 - 提示性文字只放在 hint 字段，description 只写题目描述本身，不要把提示混入 description；
+- meta 仅在硬核模式需要：generator 向 stdout 输出 JSON 数组（元素形如 {"input": "...", "small": true|false}），std_solution 为正解，brute_solution 为仅小规模可过的暴力对照；
 - 目标语言、已注册语言列表、数据规模与性能要求均以用户消息为准；
 - 若无法按要求完成（如语言不在已注册列表中），输出 {"error": "简短原因"}，不要生成题目。"""
 
@@ -67,7 +73,8 @@ def _language_perf_note(language_name: str | None, ignore_complexity: bool = Fal
     return "性能提示：数据规模须保证所选语言的正解在 time_limit 内可过、较劣复杂度算法在大点超时。"
 
 
-def _fence_strip(content: str) -> str:
+def _strip_fences(content: str) -> str:
+    """去掉代码块围栏；即使模型在 JSON 前后多说了文字也先保留整体，交给 _extract_json 提取。"""
     text = content.strip()
     if text.startswith("```"):
         lines = text.splitlines()
@@ -75,8 +82,53 @@ def _fence_strip(content: str) -> str:
             lines = lines[1:]
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
-        text = "\n".join(lines)
-    return text.strip()
+        text = "\n".join(lines).strip()
+    return text
+
+
+def _remove_trailing_commas(text: str) -> str:
+    """去掉 JSON 中数组/对象末尾的尾逗号（模型常见错误）。"""
+    return re.sub(r",\s*([}\]])", r"\1", text)
+
+
+def _remove_json_comments(text: str) -> str:
+    """去掉 // 与 /* */ 注释（模型可能照抄提示词里的注释；仅作兜底解析用）。
+
+    只去掉前面是空白或行首的 //，避免误伤字符串里的 URL（如 https://）。
+    """
+    text = re.sub(r"/\*[\s\S]*?\*/", "", text)
+    text = re.sub(r"\s//[^\n]*", "", text)
+    return re.sub(r"^\s*//.*$", "", text, flags=re.MULTILINE)
+
+
+def _extract_json(content: str) -> dict:
+    """从模型输出中稳健提取 JSON 对象。
+
+    依次尝试：整体解析 → 去围栏解析 → 提取首个 { 到末个 } 解析；
+    每个候选再尝试：原文 → 去尾逗号 → 去注释 → 去注释+去尾逗号。
+    """
+    text = _strip_fences(content)
+    candidates = [text]
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        candidates.append(text[start:end + 1])
+    for candidate in candidates:
+        if not candidate.strip():
+            continue
+        variants = [
+            candidate,
+            _remove_trailing_commas(candidate),
+            _remove_json_comments(candidate),
+            _remove_trailing_commas(_remove_json_comments(candidate)),
+        ]
+        for cleaned in variants:
+            try:
+                value = json.loads(cleaned)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                return value
+    raise ValueError("model output is not valid JSON")
 
 
 def _normalize_hint_field(problem: dict) -> dict:
@@ -110,12 +162,7 @@ def _normalize_hint_field(problem: dict) -> dict:
 
 
 def _parse_problem(content: str) -> dict:
-    try:
-        problem = json.loads(_fence_strip(content))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"model output is not valid JSON: {exc}") from exc
-    if not isinstance(problem, dict):
-        raise ValueError("model output is not a JSON object")
+    problem = _extract_json(content)
     return _normalize_hint_field(problem)
 
 
