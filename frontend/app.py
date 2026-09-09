@@ -1192,18 +1192,83 @@ def _problem_form_body(prefill: dict | None = None, edit_id: str | None = None) 
 
 # ============================== 个人中心 ==============================
 
+def _mark_read_and_go(client, n: dict, page: str, task_id=None, problem_id=None) -> None:
+    try:
+        client.put(f"/api/notifications/{n['notification_id']}/read")
+    except ApiClientError:
+        pass
+    st.session_state["page"] = page
+    if task_id:
+        st.session_state["ai_monitor_task"] = task_id
+    if problem_id:
+        st.session_state["view_problem_id"] = problem_id
+    st.rerun()
+
+
+def _render_notifications(client, data: dict) -> None:
+    notifications = data.get("notifications", [])
+    unread = data.get("unread", 0)
+    if not notifications:
+        st.caption("暂无消息")
+        return
+    if unread:
+        if st.button("全部标记已读", key="read_all_notifs"):
+            try:
+                client.put("/api/notifications/read-all")
+                st.rerun()
+            except ApiClientError as exc:
+                _err(exc)
+    for n in notifications:
+        with st.container(border=True):
+            badge = ":orange-badge[新]" if not n.get("read") else ":gray-badge[已读]"
+            st.markdown(f"{badge} **{n.get('title')}** · {_fmt_time(n.get('created_at', ''))}")
+            st.write(n.get("body", ""))
+            actions = []
+            if n.get("kind") == "ai_task" and n.get("task_id"):
+                actions.append(("查看任务", "task"))
+            elif n.get("kind") == "application" and n.get("problem_id"):
+                actions.append(("查看题目", "problem"))
+            if not n.get("read"):
+                actions.append(("标记已读", "read"))
+            if actions:
+                cols = st.columns(len(actions))
+                for col, (label, act) in zip(cols, actions):
+                    key = f"n_{act}_{n['notification_id']}"
+                    if col.button(label, key=key, width="stretch"):
+                        if act == "read":
+                            try:
+                                client.put(f"/api/notifications/{n['notification_id']}/read")
+                                st.rerun()
+                            except ApiClientError as exc:
+                                _err(exc)
+                        elif act == "task":
+                            _mark_read_and_go(client, n, "ai_monitor", task_id=n.get("task_id"))
+                        else:
+                            _mark_read_and_go(client, n, "problems", problem_id=n.get("problem_id"))
+
+
 def render_profile_page() -> None:
     st.title("个人中心", icon=":material/person:")
     client = get_client()
     me = st.session_state.get("user", {})
     try:
         info = client.get(f"/api/users/{me.get('user_id')}")
+        notif_data = client.get("/api/notifications/")
     except ApiClientError as exc:
         _err(exc)
         return
+    unread = notif_data.get("unread", 0)
+
     with st.container(border=True):
-        st.markdown(f"### :material/account_circle: {info.get('username')}")
-        st.markdown(f":violet-badge[{ROLE_TEXT.get(info.get('role'), info.get('role'))}]")
+        head_l, head_r = st.columns([2, 1], vertical_alignment="center")
+        with head_l:
+            st.markdown(f"### :material/account_circle: {info.get('username')}")
+            st.markdown(f":violet-badge[{ROLE_TEXT.get(info.get('role'), info.get('role'))}]")
+        with head_r:
+            if unread:
+                st.markdown(f":orange-badge[你有 {unread} 条新信息]")
+            else:
+                st.caption("没有新信息")
         c = st.columns(4)
         c[0].metric("提交数", info.get("submit_count"))
         c[1].metric("通过题目", info.get("resolve_count"))
@@ -1213,8 +1278,11 @@ def render_profile_page() -> None:
     if st.button(":material/query_stats: 查询我的提交记录", key="profile_query", type="primary"):
         _goto("query")
 
+    st.space("medium")
+    st.subheader("信息中心", icon=":material/notifications:")
+    _render_notifications(client, notif_data)
+
     if me.get("role") != "admin":
-        st.caption("用户管理与申请审批仅管理员可见")
         return
     st.space("medium")
     col_users, col_apps = st.columns(2, gap="large")
@@ -1334,8 +1402,12 @@ def _available_problems() -> list[dict]:
 
 def render_ai_page() -> None:
     st.title("AI 智能命题", icon=":material/auto_awesome:")
-    if st.button(":material/arrow_back: 返回题目管理", key="back_ai"):
+    back_col, monitor_col = st.columns([3, 1], vertical_alignment="center")
+    if back_col.button(":material/arrow_back: 返回题目管理", key="back_ai"):
         st.session_state.pop("ai_open", None)
+        st.rerun()
+    if monitor_col.button(":material/monitoring: 查看进行中的任务", key="open_ai_monitor", width="stretch"):
+        st.session_state["page"] = "ai_monitor"
         st.rerun()
     with st.expander("模型配置（per-user，OpenRouter 计价 / CNY）", expanded=False):
         _render_model_config()
@@ -1526,6 +1598,45 @@ def render_task_progress(task_id: str) -> None:
                 _err(exc)
 
 
+def render_ai_monitor_page() -> None:
+    st.title("AI 命题监控", icon=":material/monitoring:")
+    back_col, refresh_col = st.columns([3, 1], vertical_alignment="center")
+    if back_col.button(":material/arrow_back: 返回 AI 命题", key="back_from_monitor"):
+        st.session_state["page"] = "manage"
+        st.session_state["ai_open"] = True
+        st.rerun()
+    if refresh_col.button(":material/refresh: 刷新任务列表", key="refresh_monitor", width="stretch"):
+        st.rerun()
+    client = get_client()
+    try:
+        data = client.get("/api/ai/problem-tasks/")
+        tasks = data.get("tasks", [])
+    except ApiClientError as exc:
+        _err(exc)
+        return
+    if not tasks:
+        st.space("medium")
+        st.markdown("### :material/inbox: 暂无 AI 命题任务", text_alignment="center")
+        st.caption("在 AI 命题页创建任务后会显示在这里。", text_alignment="center")
+        return
+    task_ids = [t.get("task_id") for t in tasks]
+    current = st.session_state.get("ai_monitor_task")
+    if current not in task_ids:
+        current = task_ids[0]
+        st.session_state["ai_monitor_task"] = current
+    label_by_id = {
+        t["task_id"]: f"{t['task_id']} · {t.get('status')} · {t.get('progress') or t.get('phase')}"
+        for t in tasks
+    }
+    selected = st.selectbox(
+        "选择任务", task_ids, index=task_ids.index(current),
+        key="ai_monitor_select",
+        format_func=lambda tid: label_by_id.get(tid, tid),
+    )
+    st.session_state["ai_monitor_task"] = selected
+    render_task_progress(selected)
+
+
 def _render_model_config() -> None:
     client = get_client()
     st.caption("选择模型并填写 API Key（支持 OpenRouter 与 DeepSeek 官方直连）；"
@@ -1640,6 +1751,8 @@ def main() -> None:
         render_manage_page()
     elif page == "query":
         render_query_page()
+    elif page == "ai_monitor":
+        render_ai_monitor_page()
     else:
         render_profile_page()
 

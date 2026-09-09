@@ -11,12 +11,14 @@
 """
 import httpx
 import importlib
+import os
 import sys
 from pathlib import Path
 from streamlit.testing.v1 import AppTest
 
 APP = str(Path(__file__).resolve().parent.parent / "frontend" / "app.py")
 USER, PASSWORD = "smokeuser", "secret123"
+BACKEND = os.environ.get("OJ_BACKEND_URL", "http://127.0.0.1:8000")
 
 # 判定徽章回归（fix 2026-09-07：status=success 但 0 分 ≠ 通过）
 sys.path.insert(0, str(Path(APP).parent))
@@ -32,7 +34,7 @@ assert "AC] x1" in comp and "TLE] x2" in comp, comp
 print("0. 判定徽章逻辑（0 分 ≠ 通过）与时间/测点构成格式 OK")
 
 # 准备一次性用户（若已存在说明上次清理失败，直接复用）
-http = httpx.Client(base_url="http://127.0.0.1:8000", timeout=30)
+http = httpx.Client(base_url=BACKEND, timeout=30)
 r = http.post("/api/users/", json={"username": USER, "password": PASSWORD})
 assert r.status_code == 200 or r.json().get("msg") == "username already exists", r.text
 
