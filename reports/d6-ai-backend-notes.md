@@ -49,6 +49,6 @@ wsl ~/oj-venv/bin/python -m pytest tests -q    # 61 passed
 
 ## 5. 遗留 / 下一步（Phase3 前端，随 Step6/9.9）
 
-- Streamlit：AI 配置页（拉价可选）、命题两界面 + 硬核开关 + 重试调节、任务页轮询/中断/费用、产出预填题目新增/编辑（samples+全量 testcases）、needs_review 复核入口；与 Step6 页面组整合。
+- Streamlit：AI 配置页（拉价可选）、命题两界面 + 硬核开关 + 重试调节、任务页轮询/中断/费用、产出预填题目新增/编辑（samples+全量 testcases）、review 复核入口；与 Step6 页面组整合。
 - 联调：mock→真实 OpenRouter key（用户提供）；演示素材（O(N log N) 题 + O(N²) 部分分梯度）。
 - 素材登记 reports/report-assets.md；AI 使用说明。

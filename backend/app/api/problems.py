@@ -8,8 +8,11 @@
 from fastapi import APIRouter, Depends
 
 from app.api.deps import get_current_user, require_admin
+from app.core import messages
+from app.core.exceptions import ApiError
 from app.core.response import success
 from app.services import problems as problem_service
+from app.services import site_config
 
 router = APIRouter()
 
@@ -28,6 +31,9 @@ async def add_problem(problem: problem_service.ProblemIn, current: dict = Depend
 
 @router.put("/api/problems/{problem_id}")
 async def update_problem(problem_id: str, problem: problem_service.ProblemIn, current: dict = Depends(get_current_user)):
+    if current["role"] != "admin" and not site_config.get()["allow_user_edit"]:
+        # polish 2026-09-09：管理员可在个人端关闭"普通用户编辑题目"（默认开）
+        raise ApiError(403, messages.PERMISSION_DENIED)
     data = problem_service.update(problem_id, problem)
     return success(msg="update success", data=data)
 

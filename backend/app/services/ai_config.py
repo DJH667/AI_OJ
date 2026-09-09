@@ -72,8 +72,8 @@ def update(username: str, body: dict) -> dict:
         "provider_url": str(body["provider_url"]).strip().rstrip("/"),
         "model": model,
         "api_key": api_key,
-        "input_price": pricing["input_price"] if pricing else 0.0,
-        "output_price": pricing["output_price"] if pricing else 0.0,
+        "input_price": pricing["input_price"] if pricing else body.get("input_price"),
+        "output_price": pricing["output_price"] if pricing else body.get("output_price"),
         "price_unit": ai_catalog.PRICE_UNIT,
         "catalog_source": source if pricing else "unknown",
         "currency": CURRENCY,
@@ -90,8 +90,24 @@ def estimate_cost(usage: dict, username: str) -> dict:
     if pricing:
         inp_price, out_price = pricing["input_price"], pricing["output_price"]
     else:
-        inp_price = float(cfg.get("input_price", 0.0))
-        out_price = float(cfg.get("output_price", 0.0))
+        inp_price = cfg.get("input_price")
+        out_price = cfg.get("output_price")
+        if inp_price is None or out_price is None:
+            # 自定义模型未填写完整单价 → 费用未知（polish 2026-09-09，用户判定）
+            inp = usage.get("prompt_tokens", 0)
+            out = usage.get("completion_tokens", 0)
+            fx = ai_catalog.get_fx_rate()
+            return {
+                "input_tokens": inp,
+                "output_tokens": out,
+                "total_tokens": inp + out,
+                "cost": None,
+                "currency": CURRENCY,
+                "fx_rate": fx["rate"],
+                "fx_source": fx["source"],
+            }
+        inp_price = float(inp_price)
+        out_price = float(out_price)
     unit = int(cfg.get("price_unit", DEFAULT_PRICE_UNIT)) or DEFAULT_PRICE_UNIT
     fx = ai_catalog.get_fx_rate()
     inp = usage.get("prompt_tokens", 0)

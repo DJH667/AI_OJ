@@ -130,7 +130,9 @@ def test_task_flow_normal_mock(client, monkeypatch):
     assert data["phase"] == "completed"
     assert data.get("started_at") and data.get("finished_at")
     assert data["result"]["id"].startswith("P") and data["result"]["id"] != "AI-SUM"
-    assert data["usage"]["input_tokens"] == 100 and data["usage"]["cost"] >= 0
+    assert data["usage"]["input_tokens"] == 100
+    # 未配置模型价格（无目录价/自定义价）→ 费用未知（polish 2026-09-09）
+    assert data["usage"]["cost"] is None
     assert data["usage"]["total_tokens"] == 130
     assert data["usage"]["currency"] == "CNY"
     # 语言结构化校验：未注册语言 400
@@ -350,7 +352,8 @@ def test_model_config_minimal_request_ok(client):
     })
     assert r.status_code == 200
     data = r.json()["data"]
-    assert data["input_price"] == 0.0 and data["output_price"] == 0.0
+    # 自定义模型未填单价 → 存 None（未知），不再默认 0.0（polish 2026-09-09）
+    assert data["input_price"] is None and data["output_price"] is None
     assert data["price_unit"] == 1_000_000
     assert data["api_key_configured"] is True
 

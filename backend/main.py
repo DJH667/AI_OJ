@@ -20,6 +20,7 @@ from app.api import logs as logs_api
 from app.api import notifications as notifications_api
 from app.api import problems as problems_api
 from app.api import reset as reset_api
+from app.api import site as site_api
 from app.api import submissions as submissions_api
 from app.api import users as users_api
 from app.core.exceptions import register_exception_handlers
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
     application.include_router(submissions_api.router)
     application.include_router(logs_api.router)
     application.include_router(ai_api.router)
+    application.include_router(site_api.router)
     application.include_router(applications_api.router)
     application.include_router(notifications_api.router)
     return application

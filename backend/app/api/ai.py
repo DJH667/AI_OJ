@@ -21,10 +21,13 @@ router = APIRouter()
 
 
 class ModelConfigBody(BaseModel):
-    """polish 2026-09-08：仅连接信息由用户提供；单价/汇率由系统自动获取真实数据。"""
+    """polish 2026-09-08/09：连接信息由用户提供；目录模型单价/汇率自动获取；
+    自定义模型（不在目录）可选填 input_price/output_price（USD/1M，留空=未知，费用估算显示未知）。"""
     provider_url: str
     model: str
     api_key: str
+    input_price: float | None = Field(default=None, ge=0)
+    output_price: float | None = Field(default=None, ge=0)
 
 
 @router.get("/api/ai/models")

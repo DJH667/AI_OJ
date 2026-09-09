@@ -146,8 +146,8 @@
 硬核模式（默认关）开启后执行**三代码对拍闭环**，保证测试数据无错误。
 
 - **model-config**：**per-user**（`data/ai_configs/{username}.json`，reset 不清）；`api_key` 脱敏存（对外视图仅 `api_key_configured: bool`，任何响应/日志不含明文）。
-- **任务状态机**：`waiting/running/completed/interrupted/failed` + `review`（needs_review）标记，持久化 `data/ai_tasks/`。
-- **对拍引擎**（兼容所有已注册语言，经 `runner.py` 共用编译/运行原语）：数据生成器产**多档规模数据**（小/中/大，按期望复杂度推导，使 O(N²) 类中小点可过、大点 TLE → 部分分梯度）→ 标答算 expected → 小规模点用暴力对照验证 → 通过采纳；不一致/异常 → 生成**错误摘要回传 AI 重试**（≤retry_limit）→ 用尽：completed + **needs_review** + 错误摘要（**题目不入库**）。
+- **任务状态机**：`waiting/running/completed/interrupted/failed` + `review`（需人工复核）标记，持久化 `data/ai_tasks/`。
+- **对拍引擎**（兼容所有已注册语言，经 `runner.py` 共用编译/运行原语）：数据生成器产**多档规模数据**（小/中/大，按期望复杂度推导，使 O(N²) 类中小点可过、大点 TLE → 部分分梯度）→ 标答算 expected → 小规模点用暴力对照验证 → 通过采纳；不一致/异常 → 生成**错误摘要回传 AI 重试**（≤retry_limit）→ 用尽：completed + **review** + 错误摘要（**题目不入库**）。
 - **重试闭环**：硬核首次失败后，把 VerifyError 摘要作为 user 反馈追加再请求；`retry_limit`（默认 2 → 最多 3 次调用）。
 - **语言双层防护**：结构化输入 API 层校验未注册语言 → 400；纯文本产出 `language ∉ 已注册` → 任务 failed + 清晰原因与可用列表（prompt 先要求模型遇未注册语言直接产出"语言不支持"）。
 - **计费（R4）**：`estimate_cost = 输入token/单位×input_price + 输出token/单位×output_price`；多轮调用 token 累计后统一计费；单价按所选模型从 OpenRouter 实时目录/内置表自动取得，单位 1_000_000（每 1M tokens）；`fx_rate` 由 Frankfurter（ECB）**自动拉取**（失败回退内置参考值 7.2，5 分钟后自动重试），折算 **CNY** 展示；mock 也走同一 usage/cost 结构。**生成期间按流式 chunk 估算 token 并约每秒落盘**，前端轮询可见 token/费用实时增长，结束后以服务端 usage 为准。

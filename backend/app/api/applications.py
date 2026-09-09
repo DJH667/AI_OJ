@@ -12,6 +12,7 @@ from app.core.exceptions import ApiError
 from app.core.response import success
 from app.services import applications as application_service
 from app.services import problems as problem_service
+from app.services import site_config
 
 router = APIRouter()
 
@@ -29,6 +30,9 @@ class DecideBody(BaseModel):
 async def apply_change(problem_id: str, body: ApplyBody, current: dict = Depends(get_current_user)):
     if body.action not in application_service.ACTIONS:
         raise ApiError(400, messages.INVALID_ACTION)
+    if body.action == "edit" and current["role"] != "admin" and not site_config.get()["allow_user_edit"]:
+        # polish 2026-09-09：管理员关闭普通用户编辑后，编辑申请一并拒绝
+        raise ApiError(403, messages.PERMISSION_DENIED)
     problem = problem_service.get(problem_id)
     if problem is None:
         raise ApiError(404, messages.PROBLEM_NOT_FOUND)

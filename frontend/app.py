@@ -1079,6 +1079,34 @@ def _pending_apply_map(client) -> dict[str, set[str]]:
     return out
 
 
+def _get_site_config_cached(client) -> dict:
+    """站点设置（polish 2026-09-09）：30s TTL 缓存。"""
+    data = _cache_get("site_config")
+    if data is None:
+        data = client.get("/api/site-config")
+        _cache_set("site_config", data)
+    return data
+
+
+def _allow_user_edit(client) -> bool:
+    """是否允许普通用户编辑题目（默认开；接口失败时按 api.md 语义回退 True）。"""
+    try:
+        return bool(_get_site_config_cached(client).get("allow_user_edit", True))
+    except ApiClientError:
+        return True
+
+
+def _toggle_allow_user_edit() -> None:
+    """管理员切换"允许普通用户编辑题目"（on_change 回调，只发请求）。"""
+    new_val = bool(st.session_state.get("allow_user_edit_toggle", True))
+    try:
+        get_client().put("/api/site-config", json={"allow_user_edit": new_val})
+        _clear_caches()
+        _flash(f"普通用户编辑题目：{'已开启' if new_val else '已关闭'}")
+    except ApiClientError as exc:
+        st.error(str(exc))
+
+
 def _get_public_cases(client, pid: str) -> bool:
     """管理员查看该题日志公开状态（polish 9.9；接口 404/403 时回退 False）。"""
     try:
@@ -1117,8 +1145,10 @@ def _render_manage_card(p: dict, pending_map: dict) -> None:
             st.markdown(" ".join(badges))
         with right:
             edit_col, del_col = st.columns(2)
-            if edit_col.button(":material/edit:", key=f"edit_{pid}", help=f"编辑「{title}」",
-                               width="stretch", disabled="edit" in pending):
+            allow_edit = is_admin or _allow_user_edit(get_client())
+            edit_help = f"编辑「{title}」" if allow_edit else "管理员已关闭普通用户编辑题目"
+            if edit_col.button(":material/edit:", key=f"edit_{pid}", help=edit_help,
+                               width="stretch", disabled=("edit" in pending) or not allow_edit):
                 st.session_state["manage_action"] = f"edit:{pid}"
                 st.rerun()
             if del_col.button(":material/delete:", key=f"del_{pid}", help=f"删除「{title}」",
@@ -1183,6 +1213,10 @@ def render_problem_form_page(edit_id: str | None) -> None:
         st.session_state.pop("prefill_score", None)
         _clear_form_state()
         st.rerun()
+
+    if edit_id and not is_admin and not _allow_user_edit(get_client()):
+        st.error("管理员已关闭普通用户编辑题目，当前仅可浏览。")
+        return
 
     prefill = st.session_state.pop("prefill_problem", None)
     if prefill is not None and prefill.get("difficulty_score") is not None:
@@ -1403,6 +1437,12 @@ def render_profile_page() -> None:
 
     if me.get("role") != "admin":
         return
+    st.space("medium")
+    with st.container(border=True):
+        st.markdown("#### :material/settings: 站点设置")
+        st.toggle("允许普通用户编辑题目", value=_allow_user_edit(client),
+                  key="allow_user_edit_toggle", on_change=_toggle_allow_user_edit,
+                  help="默认开启（与 api.md 一致）。关闭后普通用户无法编辑已有题目、编辑申请也被拒绝；新增题目不受影响。")
     st.space("medium")
     col_users, col_apps = st.columns(2, gap="large")
     with col_users:
@@ -1655,7 +1695,7 @@ def render_ai_page() -> None:
             parts.append(f"备注：{note}")
         requirement = "\n".join(parts)
     else:
-        requirement = st.text_area("用自然语言描述命题需求（可附站内题目链接）", key="pure_req", height=160)
+        requirement = st.text_area("用自然语言描述命题需求", key="pure_req", height=160)
         uploaded = st.file_uploader("上传背景资料（文本类；纯文本模型无法观看图片）", type=["txt", "md", "csv", "json"])
         if uploaded is not None:
             requirement = f"{requirement}\n\n【上传资料】\n{uploaded.getvalue().decode('utf-8', errors='replace')[:6000]}"
@@ -1743,7 +1783,8 @@ def render_task_progress(task_id: str) -> None:
     c1.metric("已用时间", _fmt_elapsed(elapsed) if elapsed is not None else "—")
     c2.metric("Token 总数", total_tok)
     c3.metric("输入 / 输出", f"{in_tok} / {out_tok}")
-    c4.metric("估算费用", f"¥{usage.get('cost', 0):.4f}")
+    cost = usage.get("cost")
+    c4.metric("估算费用", f"¥{cost:.4f}" if cost is not None else "未知")
     if usage.get("fx_rate"):
         st.caption(f"自动汇率 {usage['fx_rate']}（{usage.get('fx_source', '')}）· {usage.get('currency', 'CNY')}")
     if data.get("attempts"):
@@ -1865,8 +1906,17 @@ def _render_model_config() -> None:
                 placeholder="如 deepseek-v4-flash / qwen-plus（官方直连）",
                 key="ai_model_custom",
                 help="填 provider 侧的真实模型 id；官方直连不带厂商前缀（deepseek-chat / deepseek-reasoner 已弃用）。")
+            st.caption("自定义模型不在目录中：可在此填写单价用于费用估算（USD / 1M tokens，留空则估算显示「未知」）。")
+            p1, p2 = st.columns(2)
+            custom_in = p1.number_input(
+                "输入单价 input_price（USD/1M，可选）", min_value=0.0,
+                value=cfg.get("input_price"), step=0.01, format="%.6f", key="ai_in_price")
+            custom_out = p2.number_input(
+                "输出单价 output_price（USD/1M，可选）", min_value=0.0,
+                value=cfg.get("output_price"), step=0.01, format="%.6f", key="ai_out_price")
         else:
             custom_model = ""
+            custom_in, custom_out = None, None
         key = st.text_input("API Key", type="password", key="ai_key",
                             value=st.session_state.get("ai_key_display", ""),
                             placeholder=("已配置（留空保存则保持原 Key）"
@@ -1899,7 +1949,11 @@ def _render_model_config() -> None:
         if sel.get("description"):
             st.caption(sel["description"])
     else:
-        st.caption(f"模型「{chosen_model or '未填写'}」不在目录中（自定义模型），单价按已存配置计算。")
+        in_p, out_p = cfg.get("input_price"), cfg.get("output_price")
+        if in_p is None or out_p is None:
+            st.caption(f"模型「{chosen_model or '未填写'}」不在目录中（自定义模型），单价未填写：费用估算将显示「未知」。")
+        else:
+            st.caption(f"模型「{chosen_model or '未填写'}」不在目录中（自定义模型）：输入 {in_p} / 输出 {out_p} USD/1M tokens。")
     fx_src = {"frankfurter": "实时汇率（Frankfurter/ECB）",
               "builtin": "内置参考汇率（实时获取失败，稍后自动重试）"}.get(cfg.get("fx_source"), cfg.get("fx_source") or "—")
     src_label = {"openrouter": "OpenRouter 实时目录",
@@ -1909,9 +1963,11 @@ def _render_model_config() -> None:
     if submitted:
         st.session_state["ai_key_display"] = key
         try:
-            data = client.put("/api/ai/model-config", json={
-                "provider_url": provider, "model": chosen_model, "api_key": key,
-            })
+            body = {"provider_url": provider, "model": chosen_model, "api_key": key}
+            if model == CUSTOM_MODEL:
+                body["input_price"] = custom_in
+                body["output_price"] = custom_out
+            data = client.put("/api/ai/model-config", json=body)
             st.success(f"已保存：{data.get('model')}")
         except ApiClientError as exc:
             _err(exc)
