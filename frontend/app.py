@@ -942,7 +942,7 @@ def render_manage_page() -> None:
         return
 
     st.title("题目管理", icon=":material/table_chart:")
-    st.caption("新增、编辑或删除题目；删除仅管理员可用。")
+    st.caption("新增、编辑或删除题目；管理员可直接删除，普通用户提交删除申请。")
     search_col, btn_col = st.columns([2.6, 1], vertical_alignment="bottom")
     search = search_col.text_input("搜索题目", placeholder="按编号或标题关键词搜索（仅匹配标题）",
                                    label_visibility="collapsed")
@@ -1076,6 +1076,26 @@ def _pending_apply_map(client) -> dict[str, set[str]]:
     return out
 
 
+def _get_public_cases(client, pid: str) -> bool:
+    """管理员查看该题日志公开状态（polish 9.9；接口 404/403 时回退 False）。"""
+    try:
+        data = client.get(f"/api/problems/{pid}/log_visibility")
+        return bool(data.get("public_cases"))
+    except ApiClientError:
+        return False
+
+
+def _toggle_public_cases(pid: str) -> None:
+    """管理员切换日志公开（on_change 回调：widget 交互本身会触发 rerun，此处只发请求）。"""
+    new_val = bool(st.session_state.get(f"pub_{pid}", False))
+    try:
+        get_client().put(f"/api/problems/{pid}/log_visibility",
+                         json={"public_cases": new_val})
+        _flash(f"日志公开已{'开启' if new_val else '关闭'}：{pid}")
+    except ApiClientError as exc:
+        st.error(str(exc))
+
+
 def _render_manage_card(p: dict, pending_map: dict) -> None:
     pid = str(p.get("id", ""))
     title = p.get("title") or "未命名题目"
@@ -1104,6 +1124,10 @@ def _render_manage_card(p: dict, pending_map: dict) -> None:
                     _confirm_delete(pid, title)
                 else:
                     _confirm_delete_apply(pid, title)
+            if is_admin:
+                st.toggle("日志公开", value=_get_public_cases(get_client(), pid),
+                          key=f"pub_{pid}", on_change=_toggle_public_cases, args=(pid,),
+                          help="开启后所有登录用户可查看该题评测日志的测例明细（public_cases）")
 
 
 @st.dialog("提交删除申请")
@@ -1399,6 +1423,10 @@ def render_profile_page() -> None:
         st.subheader("申请审批", icon=":material/approval:")
         _render_application_list(client)
 
+    st.space("medium")
+    with st.expander("访问审计（view_logs）", expanded=False, icon=":material/security:"):
+        _render_access_audit(client, users)
+
 
 def _render_user_row(u: dict, me: dict, client) -> None:
     with st.container(border=True):
@@ -1421,6 +1449,72 @@ def _render_user_row(u: dict, me: dict, client) -> None:
                     st.rerun()
                 except ApiClientError as exc:
                     _err(exc)
+
+
+def _render_access_audit(client, users: list) -> None:
+    """管理员访问审计查询（polish 9.9；GET /api/logs/access/，user_id/problem_id 至少一项）。"""
+    audit_page_size = 10
+    try:
+        problems = sorted(_get_problems_cached(client), key=lambda p: str(p.get("id", "")))
+    except ApiClientError as exc:
+        _err(exc)
+        return
+    c1, c2, c3 = st.columns([1.6, 1.6, 0.5], vertical_alignment="center")
+    user_opt = ["（全部）"] + [f"{u['username']}（id={u['user_id']}）" for u in users]
+    prob_opt = ["（全部）"] + [p["id"] for p in problems]
+    sel_user = c1.selectbox("用户", user_opt, key="audit_user")
+    sel_problem = c2.selectbox("题目", prob_opt, key="audit_problem")
+    if c3.button("查询", key="audit_run", type="primary", width="stretch"):
+        params: dict = {}
+        for u in users:
+            if sel_user == f"{u['username']}（id={u['user_id']}）":
+                params["user_id"] = u["user_id"]
+        if sel_problem != "（全部）":
+            params["problem_id"] = sel_problem
+        if not params:
+            st.session_state.pop("audit_params", None)
+            st.error("user_id 与 problem_id 至少提供一项")
+        else:
+            st.session_state["audit_params"] = params
+            st.session_state["audit_page"] = 1
+        st.rerun()
+
+    params = st.session_state.get("audit_params")
+    if params is None:
+        st.caption("选择用户或题目后点击「查询」（后端要求两项至少提供一项）")
+        return
+    try:
+        rows = client.get("/api/logs/access/", params=params)
+    except ApiClientError as exc:
+        _err(exc)
+        return
+    if not rows:
+        st.caption("暂无访问审计记录")
+        return
+
+    total_pages = max(1, math.ceil(len(rows) / audit_page_size))
+    page = int(st.session_state.get("audit_page", 1) or 1)
+    page = max(1, min(page, total_pages))
+    st.session_state["audit_page"] = page
+    start = (page - 1) * audit_page_size
+    header = st.columns([1.4, 1.2, 0.9, 0.9, 0.6])
+    for col, label in zip(header, ("时间", "用户", "题目", "动作", "结果")):
+        col.caption(label)
+    for e in rows[start:start + audit_page_size]:
+        cols = st.columns([1.4, 1.2, 0.9, 0.9, 0.6])
+        cols[0].markdown(_fmt_time(e.get("time", "")))
+        cols[1].markdown(f"{e.get('username', '')}（{e.get('user_id', '')}）")
+        cols[2].markdown(f"`{e.get('problem_id', '')}`")
+        cols[3].markdown(e.get("action", ""))
+        cols[4].markdown(":red-badge[403]" if str(e.get("status", "")) == "403" else ":green-badge[200]")
+    prev, info, nxt = st.columns([1, 2, 1], vertical_alignment="center")
+    if prev.button("← 上一页", key="audit_prev", disabled=page <= 1, width="stretch"):
+        st.session_state["audit_page"] = page - 1
+        st.rerun()
+    info.markdown(f"第 {page} / {total_pages} 页 · 共 {len(rows)} 条", text_alignment="center")
+    if nxt.button("下一页 →", key="audit_next", disabled=page >= total_pages, width="stretch"):
+        st.session_state["audit_page"] = page + 1
+        st.rerun()
 
 
 def _render_application_list(client) -> None:

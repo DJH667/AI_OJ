@@ -51,6 +51,17 @@ class PublicCasesBody(BaseModel):
     public_cases: bool = False
 
 
+@router.get("/api/problems/{problem_id}/log_visibility")
+async def get_log_visibility(problem_id: str, admin: dict = Depends(require_admin)):
+    """查询当前日志公开状态（polish 9.9，供管理员前端开关回显；与 PUT 同权限）。"""
+    if problems.get(problem_id) is None:
+        raise ApiError(404, messages.PROBLEM_NOT_FOUND)
+    return success(msg="success", data={
+        "problem_id": problem_id,
+        "public_cases": problems.get_public_cases(problem_id),
+    })
+
+
 @router.put("/api/problems/{problem_id}/log_visibility")
 async def set_log_visibility(problem_id: str, body: PublicCasesBody, admin: dict = Depends(require_admin)):
     problems.set_public_cases(problem_id, body.public_cases)  # 404 inside
