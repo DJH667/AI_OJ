@@ -1007,18 +1007,38 @@ def render_languages_page() -> None:
 
     st.divider()
     st.subheader("注册新语言")
-    st.caption("任意已登录用户可注册。命令模板中 {src}/{exe} 会被替换为路径（如 ./main.cpp 而非 main.cpp）；"
-               "解释型语言留空 compile_cmd。")
+    st.markdown(
+        "**这是什么**：把一种新的编程语言（如 go、java、c）加入评测系统。注册后它会立即出现在：\n"
+        "① 题目详情页的提交面板「语言」下拉；② AI 命题页的「语言」下拉；③ 评测引擎的可用语言列表。\n\n"
+        "**权限**：任意已登录用户都可注册；系统暂不支持删除语言（`reset` 会把动态注册语言重置回内置 python/cpp）。"
+    )
     with st.form("lang_form", border=False):
         c1, c2 = st.columns(2)
-        name = c1.text_input("name *", placeholder="如 go")
-        file_ext = c2.text_input("file_ext *", placeholder="如 .go")
-        compile_cmd = st.text_input("compile_cmd（可选）", placeholder="如 g++ {src} -o {exe}")
-        run_cmd = st.text_input("run_cmd *", placeholder="如 python3 {src} 或 {exe}")
+        name = c1.text_input(
+            "name *", placeholder="如 go",
+            help="语言唯一标识（小写英文，如 go / java / c）。提交评测时 language 字段就填这个值，"
+                 "与已注册语言重名会被拒绝。")
+        file_ext = c2.text_input(
+            "file_ext *", placeholder="如 .go",
+            help="源码文件后缀（含点，如 .go / .java / .c）。评测时用户提交的代码按这个后缀落盘。")
+        compile_cmd = st.text_input(
+            "compile_cmd（可选）", placeholder="如 g++ {src} -o {exe}",
+            help="编译命令模板，仅编译型语言需要。{src} 会被替换为源码路径（如 ./main.cpp），"
+                 "{exe} 会被替换为编译产物路径。解释型语言（如 python、js）直接留空。")
+        run_cmd = st.text_input(
+            "run_cmd *", placeholder="如 python3 {src} 或 {exe}",
+            help="运行命令模板（必填）。编译型语言填 {exe}（跑编译产物），"
+                 "解释型语言填“解释器 {src}”（如 python3 {src}）。注意 {src}/{exe} 会被替换成"
+                 "带路径的形式（./main.cpp 而非 main.cpp），这是官方 api.md 的明确要求。")
         c3, c4 = st.columns(2)
-        time_limit = c3.number_input("time_limit（秒，可选）", min_value=0.1, value=3.0,
-                                     step=0.5, format="%.1f")
-        memory_limit = c4.number_input("memory_limit（MB，可选）", min_value=16, value=128, step=64)
+        time_limit = c3.number_input(
+            "time_limit（秒，可选）", min_value=0.1, value=3.0, step=0.5, format="%.1f",
+            help="该语言的默认时限（秒）。当题目没有显式指定时限时，评测就使用这个默认值；"
+                 "若这里也没填，系统按 3 秒兜底。")
+        memory_limit = c4.number_input(
+            "memory_limit（MB，可选）", min_value=16, value=128, step=64,
+            help="该语言的默认内存上限（MB）。当题目没有显式指定内存限制时，评测就使用这个默认值；"
+                 "若这里也没填，系统按 128MB 兜底。")
         submitted = st.form_submit_button("注册语言", type="primary", width="stretch")
     if not submitted:
         return
