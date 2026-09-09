@@ -2,7 +2,8 @@
 
 - 模型目录：实时拉取 OpenRouter 公开接口 GET /api/v1/models（无需 key），
   解析 pricing（USD/token）× 1M → USD/1M tokens；失败回退内置常用模型表（source=builtin）；
-  内置表同时含 DeepSeek 官方直连模型（deepseek-chat/deepseek-reasoner），
+  内置表同时含 DeepSeek 官方直连模型（deepseek-v4-flash/deepseek-v4-pro，
+  2026-09 起 deepseek-chat/deepseek-reasoner 已弃用），
   供 provider_url=https://api.deepseek.com 场景下拉选择与计价；
 - 汇率：Frankfurter（ECB，免费无 key）USD→CNY；失败回退内置参考值（source=builtin）；
   2026 年 Frankfurter 域名迁移 api.frankfurter.app → api.frankfurter.dev/v1（旧域 301），
@@ -19,18 +20,21 @@ CURRENCY = "CNY"
 DEFAULT_FX_RATE = 7.2  # USD→CNY 内置参考值（仅网络不可用时兜底，2026-09 参考）
 
 # 内置常用模型（USD/1M tokens；供离线降级与官方直连模型选择）
+# DeepSeek 官方直连价格为官网 CNY 价按兜底汇率 7.2 折算的 USD 估算，
+# 离线时与内置汇率 7.2 相乘后恰好还原官网 CNY 价，计价自洽。
 BUILTIN_MODELS = [
-    {"id": "deepseek/deepseek-chat", "name": "DeepSeek Chat (V3)",
-     "description": "DeepSeek-V3 对话模型（OpenRouter 路由）", "context_length": 65536,
-     "input_price": 0.27, "output_price": 1.10, "price_unit": PRICE_UNIT},
-    {"id": "deepseek-chat", "name": "DeepSeek Chat（官方直连）",
-     "description": "DeepSeek 官方 API 对话模型（provider_url 填 https://api.deepseek.com，官方 key）",
-     "context_length": 65536,
-     "input_price": 0.27, "output_price": 1.10, "price_unit": PRICE_UNIT},
-    {"id": "deepseek-reasoner", "name": "DeepSeek Reasoner（官方直连）",
-     "description": "DeepSeek 官方 API 推理模型（provider_url 填 https://api.deepseek.com，官方 key）",
-     "context_length": 65536,
-     "input_price": 0.55, "output_price": 2.19, "price_unit": PRICE_UNIT},
+    {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash（官方直连）",
+     "description": "DeepSeek 官方 API 快模型（provider_url 填 https://api.deepseek.com，官方 key）",
+     "context_length": 131072,
+     "input_price": 0.2083, "output_price": 0.625, "price_unit": PRICE_UNIT},
+    {"id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro（官方直连）",
+     "description": "DeepSeek 官方 API 旗舰模型（provider_url 填 https://api.deepseek.com，官方 key）",
+     "context_length": 131072,
+     "input_price": 0.625, "output_price": 1.875, "price_unit": PRICE_UNIT},
+    {"id": "deepseek-v4-flash-vision-exp", "name": "DeepSeek V4 Flash Vision（实验，官方直连）",
+     "description": "DeepSeek 官方视觉实验模型（支持图片输入；provider_url 填 https://api.deepseek.com）",
+     "context_length": 131072,
+     "input_price": 0.2083, "output_price": 0.625, "price_unit": PRICE_UNIT},
     {"id": "openai/gpt-4o-mini", "name": "GPT-4o mini",
      "description": "OpenAI 轻量多模态模型", "context_length": 128000,
      "input_price": 0.15, "output_price": 0.60, "price_unit": PRICE_UNIT},

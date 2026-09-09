@@ -1506,9 +1506,9 @@ def _render_model_config() -> None:
             custom_model = st.text_input(
                 "自定义模型 id",
                 value=custom_prefill,
-                placeholder="如 deepseek-chat / deepseek-reasoner（DeepSeek 官方）",
+                placeholder="如 deepseek-v4-flash / deepseek-v4-pro（DeepSeek 官方）",
                 key="ai_model_custom",
-                help="填 provider 侧的真实模型 id；DeepSeek 官方不带厂商前缀。")
+                help="填 provider 侧的真实模型 id；DeepSeek 官方不带厂商前缀（deepseek-chat / deepseek-reasoner 已弃用）。")
         else:
             custom_model = ""
         key = st.text_input("API Key", type="password", key="ai_key",
@@ -1520,9 +1520,10 @@ def _render_model_config() -> None:
                                      key="ai_provider",
                                      help="OpenAI 兼容接口基址。OpenRouter 填 https://openrouter.ai/api/v1；"
                                           "DeepSeek 官方填 https://api.deepseek.com。")
-            st.caption("OpenRouter：模型用厂商前缀 id（如 deepseek/deepseek-chat），Key 用 OpenRouter 的 key；"
-                       "DeepSeek 官方：模型用 deepseek-chat / deepseek-reasoner（不带前缀），Key 用官网 key。"
-                       "混用（OpenRouter 的模型 id 配 DeepSeek 官方地址）会报 Model Not Exist。")
+            st.caption("OpenRouter：模型用厂商前缀 id（如 deepseek/deepseek-v4-pro），Key 用 OpenRouter 的 key；"
+                       "DeepSeek 官方：模型用 deepseek-v4-flash / deepseek-v4-pro（不带前缀），Key 用官网 key。"
+                       "旧 id deepseek-chat / deepseek-reasoner 已弃用；"
+                       "混用（OpenRouter 模型 id 配 DeepSeek 官方地址）会报 Model Not Exist。")
         submitted = st.form_submit_button("保存配置", key="ai_cfg_save", type="primary", width="stretch")
 
     # 选中模型的真实单价（自动获取，随选择即时更新）

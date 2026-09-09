@@ -109,9 +109,9 @@ wsl ~/oj-venv/bin/python -m pytest tests -q     # backend/ 目录下；64 passed
 `public_cases` 开关：管理员调用 `PUT /api/problems/{id}/log_visibility`（body `{"public_cases": true}`）。审计查询 `GET /api/logs/access/`（仅管理员，需 user_id 或 problem_id 至少一个）。
 
 ### 4.4 AI 智能命题（入口：题目管理页右上角「AI 命题」按钮）
-1. **模型配置**（折叠面板，per-user）：**模型为下拉选择题**（目录实时取自 OpenRouter，并内置补充 **DeepSeek 官方直连模型** `deepseek-chat`/`deepseek-reasoner`；离线用内置常用模型兜底；也可选"自定义模型…"手填 id）；选中后自动展示该模型**真实单价**（USD/1M tokens）与**自动汇率**（Frankfurter/ECB 实时获取，离线用内置参考值兜底，失败 5 分钟后自动重试）——单价/汇率均无需手工填写；只需填 `api_key`（`provider_url` 在"高级"折叠里可改，默认 OpenRouter）。**不填 key 时自动走本地 mock**（也可完整演示）。
-   - **OpenRouter**：`provider_url` 填 `https://openrouter.ai/api/v1`，模型用厂商前缀 id（如 `deepseek/deepseek-chat`），Key 用 OpenRouter 的 key；
-   - **DeepSeek 官方**：`provider_url` 填 `https://api.deepseek.com`，模型选 `deepseek-chat` / `deepseek-reasoner`（不带前缀），Key 用 DeepSeek 官网 key；混用（OpenRouter 模型 id 配官方地址）会报 Model Not Exist。
+1. **模型配置**（折叠面板，per-user）：**模型为下拉选择题**（目录实时取自 OpenRouter，并内置补充 **DeepSeek 官方直连模型** `deepseek-v4-flash`/`deepseek-v4-pro`/`deepseek-v4-flash-vision-exp`；离线用内置常用模型兜底；也可选"自定义模型…"手填 id；旧 id `deepseek-chat`/`deepseek-reasoner` 已弃用）；选中后自动展示该模型**真实单价**（USD/1M tokens）与**自动汇率**（Frankfurter/ECB 实时获取，离线用内置参考值兜底，失败 5 分钟后自动重试）——单价/汇率均无需手工填写；只需填 `api_key`（`provider_url` 在"高级"折叠里可改，默认 OpenRouter）。**不填 key 时自动走本地 mock**（也可完整演示）。
+   - **OpenRouter**：`provider_url` 填 `https://openrouter.ai/api/v1`，模型用厂商前缀 id（如 `deepseek/deepseek-v4-pro`），Key 用 OpenRouter 的 key；
+   - **DeepSeek 官方**：`provider_url` 填 `https://api.deepseek.com`，模型选 `deepseek-v4-flash` / `deepseek-v4-pro`（不带前缀），Key 用 DeepSeek 官网 key；混用（OpenRouter 模型 id 配官方地址）会报 Model Not Exist。
 2. **命题输入**（二选一）：
    - 结构化表单：**语言必选**（=已注册语言下拉）、考点多选（可自定义）、难度分、预期复杂度、数据规模、情景/备注；可选"站内参考题"；
    - 纯文本：自然语言描述（可附站内题目链接、上传文本资料）；若指定未注册语言会被拒绝并提示可用语言。
