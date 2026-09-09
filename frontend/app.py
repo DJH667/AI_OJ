@@ -1425,8 +1425,9 @@ def render_ai_page() -> None:
         with c2:
             difficulty = st.select_slider("难度分", options=list(range(1, 11)), value=3)
         with c3:
-            complexity_choice = st.selectbox("预期复杂度", COMPLEXITY_OPTIONS)
-        complexity = complexity_choice
+            complexity_choice = st.selectbox("预期复杂度", ["不考察复杂度"] + COMPLEXITY_OPTIONS)
+        ignore_complexity = complexity_choice == "不考察复杂度"
+        complexity = "" if ignore_complexity else complexity_choice
         if complexity_choice == "其他":
             complexity = st.text_input("自定义复杂度", key="complexity_other")
         tags = st.multiselect("考点（可多选）", TAG_OPTIONS)
@@ -1440,10 +1441,6 @@ def render_ai_page() -> None:
             scale = st.text_input("自定义规模", key="scale_other")
         background = st.text_area("情景/背景故事（可选）", key="ai_bg")
         note = st.text_area("备注（可选）", key="ai_note")
-        ignore_complexity = st.checkbox(
-            "本题不考虑复杂度（不卡高复杂度算法，强化边界/极端用例）",
-            value=False, key="ignore_complexity",
-            help="选中后提示词会要求模型少构造卡复杂度的大数据点，多覆盖 edge cases。")
         problems = _available_problems()
         ref_opts = [p["id"] for p in problems]
         title_by_id = {p["id"]: p.get("title") or "未命名题目" for p in problems}
