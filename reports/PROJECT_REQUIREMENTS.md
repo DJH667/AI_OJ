@@ -77,6 +77,7 @@
 - cpp: `compile_cmd="g++ {src} -o {exe}"`, `run_cmd="{exe}"`
 - python: `run_cmd="python3 {src}"`（解释型无 compile_cmd）
 注册语言权限：**任意已登录用户**（api.md）；暂不考虑删除语言（Step4 页面权限提示）。
+> ⚠ **执行环境边界（2026-09-10 文档化）**：注册语言只登记命令模板（`name/file_ext/compile_cmd/run_cmd`），**不负责安装解释器/编译器**。提交评测时后端以 subprocess 按模板命令调用系统工具：环境未安装对应工具时，编译命令缺失（FileNotFoundError）→ submission 记 `error`；运行命令无法启动 → 测例记 `UNK`。注册"成功"不等于"可执行"——实际可执行性取决于评测环境（WSL Ubuntu）是否已预装该工具链；内置 python/cpp 由环境搭建保证。
 
 ## 5. 基础模块接口清单（须严格遵循 api.md）
 
