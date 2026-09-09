@@ -13,42 +13,8 @@
 |---|---|---|---|---|
 | 1 | P2 | 启动自动种入示例题 P1000/P1001（reset 不回种、重启恢复）：若自动评测用同 id 建题会 409 | 验收前用真实评测脚本复核；文档说明可用 `OJ_SEED_DEMO=0` 关闭 | 待验收复核 |
 | 2 | P2 | 前端"普通用户改/删走申请-审批流"（applications，9.8 polish）：后端 PUT/DELETE 的 api.md 语义未变，需确认演示口径（api.md 走查 vs 审批流演示） | 与验收预期对齐并在演示脚本中明确 | 待确认 |
-| 3 | P3 | access 审计文件名同微秒碰撞 / 响应形态 | D7a 与 api.md 终核 | 待处理 |
-| — | 台账 | 9.7 本文件曾有两处重复旧表 + AI Phase2 #3 误记 require_admin（实际 per-user） | #3 已更正；重复旧表留待清理 | 🟡 部分处理 |
-
----
-
-## 2026-09-07 · 新增部分评审（对应 `comments/2026-09-07-review-a981671.md`）
-
-| # | 级别 | 问题 | 建议 | 状态 |
-|---|---|---|---|---|
-| 1 | P1 | `PUT /api/ai/model-config` 省略可选计价字段（input_price 等）→ `float(None)` 500 | `float(body.get("input_price") or 0.0)` 等 + 最小请求测试 | 待处理 |
-| 2 | P1 | AI 普通任务 cancel 不生效：cancel 后最终 status 变回 completed（状态被 RUNNING 覆盖） | `chat()` 返回后先查 `cancel_requested`；interrupted 一旦置位不再被覆盖 | 待处理 |
-| 3 | P2 | `model-config` 任意登录用户可改全局共享配置 | 建议仅管理员（`require_admin`），至少文档定案 | 待处理 |
-| 4 | P3 | POST 保存 pending 后未立即 recompute_stats，submit_count 延迟到评测完成 | POST 后同步 recompute 一次 | 待处理 |
-| 5 | P3 | `judge._JudgeError` 分支未清 score/counts/compile_info/run_info | 兜底清零 | 待处理 |
-| 6 | P3 | `llm_client.chat` 半截配置（有 key 缺 url/model）→ `KeyError` | 缺失转 `LLMError` | 待处理 |
-| 7 | P3 | access 审计文件名 `时间戳-user_id` 同微秒可覆盖；access 响应形态待终核 | 文件名加随机后缀；D7a 与 api.md 核对 | 待处理 |
-| 8 | P3 | `ai_tasks.next_task_id` 无锁（单 worker 理论安全）；`ACCEPTED_VERDICTS` 等死代码 | 低优先清理 | 待处理 |
-
----
-
-## 2026-09-07 · 一键启动脚本评审（对应 `comments/2026-09-07-review-start-script-9cba4ba.md`）
-
-结论：脚本可用，无阻断；建议优先处理 #1/#2。
-
-| # | 级别 | 问题 | 建议 | 状态 |
-|---|---|---|---|---|
-| 1 | P2 | `start.cmd` 后端探活 `:wait_loop` 无超时，失败时无限循环 | 加计数器（~30s）超时报错并提示看 backend.log | 待处理 |
-| 2 | P2 | 无 8000/8501 端口占用检测，可能连到旧后端 | 启动前检查端口占用/自动 stop | 待处理 |
-| 3 | P3 | 浏览器在 streamlit 就绪前打开 | 先探活 8501 再开浏览器 | 待处理 |
-| 4 | P3 | README/USER_GUIDE 与 `start /b` 无窗口行为不一致 | 统一为"仅 stop.cmd 停后端" | 待处理 |
-| 5 | P3 | 预检未校验 fastapi/uvicorn/streamlit 依赖 | 加 import 检查 | 待处理 |
-| 6 | P3 | 盘符仅支持 C:–G: | 用 wslpath 或放宽 | 待处理 |
-| 7 | P3 | 后端 0.0.0.0 暴露局域网 | 视需要改 127.0.0.1 | 待处理 |
-| 8 | P3 | stop.cmd pkill 可能误杀同名 uvicorn | 按目录/端口精确匹配 | 待处理 |
-| 9 | P3 | .gitattributes 未声明 *.cmd eol=crlf | 补声明 | 待处理 |
-| 10 | P3 | backend.log 无轮转 | 加截断/轮转 | 待处理 |
+| 3 | P3 | access 审计文件名同微秒碰撞 / 响应形态 | 文件名已加随机后缀（2026-09-09）；响应形态保持数组契约（现有测试一致），D7a 终核 | 🟡 文件名已修 |
+| — | 台账 | 9.7 本文件曾有两处重复旧表 + AI Phase2 #3 误记 require_admin（实际 per-user） | #3 已更正；重复旧表已清理（2026-09-09） | ✅ 已清理 |
 
 ---
 
@@ -74,7 +40,7 @@
 | 4 | P3 | POST 后 submit_count 滞后到评测完成 | ✅ POST 保存 pending 后立即 recompute（幂等、评测完成再算） |
 | 5 | P3 | judge error 分支未清 score/counts/compile_info | ✅ 兜底清零 |
 | 6 | P3 | llm_client 半截配置 KeyError | ✅ 转 LLMError（provider_url/model 缺失检查） |
-| 7 | P3 | access 审计文件名同微秒碰撞 / 响应形态 | 🟡 记录：D7a 与 api.md 终核（响应如需 total 再补） |
+| 7 | P3 | access 审计文件名同微秒碰撞 / 响应形态 | ✅ 文件名加随机后缀（2026-09-09）；响应形态保持数组（与现有测试/契约一致），D7a 终核 |
 | 8 | P3 | next_task_id 无锁 + 死代码 | ✅ 死代码清理（judge `ACCEPTED_VERDICTS`、pipeline 重复 get）；无锁属单进程安全，已注明 |
 
 > 基础部分（Step5/Q5/Q6/flaky）评审确认 ✅；全量 63/63。
