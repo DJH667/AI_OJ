@@ -235,6 +235,29 @@ def test_parse_problem_robust_extraction():
     assert problem2["id"] == "P2"
 
 
+def test_chat_stream_ignores_reasoning_content(monkeypatch):
+    class FakeResp:
+        status_code = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def iter_lines(self):
+            yield 'data: {"choices":[{"delta":{"reasoning_content":"思考中..."}}]}'
+            yield 'data: {"choices":[{"delta":{"content":"{\\"id\\":\\"P1\\"}"}}]}'
+            yield "data: [DONE]"
+
+    monkeypatch.setattr(llm_client.httpx, "stream", lambda *a, **k: FakeResp())
+    monkeypatch.setattr(llm_client.ai_config, "get_raw", lambda username: {
+        "provider_url": "https://api.deepseek.com", "model": "deepseek-v4-pro", "api_key": "k"})
+    out = llm_client.chat([{"role": "user", "content": "hi"}], "u")
+    assert "思考中" not in out["content"]
+    assert out["content"].startswith("{")
+
+
 def test_prompt_contains_registered_languages_and_perf_note(client, monkeypatch):
     captured = {}
 

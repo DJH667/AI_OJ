@@ -85,7 +85,9 @@ def _chat_stream(cfg: dict, messages: list[dict], payload: dict, on_progress) ->
                 continue
             choices = chunk.get("choices") or []
             delta = choices[0].get("delta", {}) if choices else {}
-            piece = delta.get("content") or delta.get("reasoning_content") or ""
+            # 只累积最终回答 content；reasoning_content 是思考过程，
+            # 混入 content 会污染 JSON 解析（DeepSeek 推理模型等）。
+            piece = delta.get("content") or ""
             if piece:
                 content_parts.append(piece)
             if chunk.get("usage"):
@@ -137,7 +139,11 @@ def chat(messages: list[dict], username: str, temperature: float = 0.2, on_progr
             "stream": True,
             "stream_options": {"include_usage": True},
         }
-        return {**_chat_stream(cfg, messages, stream_payload, on_progress), "mock": False}
+        streamed = _chat_stream(cfg, messages, stream_payload, on_progress)
+        # 部分模型流式只有 reasoning 没有 content：内容为空时回退非流式
+        if not (streamed.get("content") or "").strip():
+            return {**_chat_once(cfg, messages, payload), "mock": False}
+        return {**streamed, "mock": False}
     except LLMError as stream_exc:
         # 个别兼容层可能不支持 stream_options：回退非流式，失败则抛流式错误
         try:

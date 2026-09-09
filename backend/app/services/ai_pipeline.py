@@ -27,7 +27,7 @@ SYSTEM_PROMPT = """你是一个 OJ 命题助手。严格只输出一个 JSON 对
   "testcases": [{"input": "测试输入", "output": "测试输出"}],
   "time_limit": 1.0,
   "memory_limit": 128,
-  "difficulty_score": 数字,
+  "difficulty_score": 3.0,
   "hint": "可选提示（没有则留空字符串）",
   "language": "题目/代码语言",
   "meta": {
@@ -37,6 +37,7 @@ SYSTEM_PROMPT = """你是一个 OJ 命题助手。严格只输出一个 JSON 对
   }
 }
 要求：
+- 输出必须是合法 JSON：字符串内的换行与双引号要转义，不要尾逗号、不要注释；
 - 题目知识点/难度/预期复杂度/数据规模一致；samples 清晰；testcases 覆盖边界并含多档规模（小/中/大），大点应能区分不同复杂度算法，数据不得有错误；
 - 提示性文字只放在 hint 字段，description 只写题目描述本身，不要把提示混入 description；
 - meta 仅在硬核模式需要：generator 向 stdout 输出 JSON 数组（元素形如 {"input": "...", "small": true|false}），std_solution 为正解，brute_solution 为仅小规模可过的暴力对照；
