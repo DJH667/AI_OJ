@@ -5,6 +5,7 @@
 - 详情：本人或管理员、404、pending 结构
 - rejudge：仅管理员、覆盖回 pending 并重评
 """
+import sys
 import time
 
 import pytest
@@ -107,6 +108,8 @@ def _mk(username, pid, status, score=10, counts=10):
 # ---------- MLE（Step2 收尾）----------
 
 def test_memory_limit_mle(client):
+    if sys.platform == "win32":
+        pytest.skip("内存峰值监控评测需 Linux/WSL 环境")
     assert _add_problem(client, "MEM", testcases=[{"input": "0", "output": "0"}], time_limit=5.0, memory_limit=16).status_code == 200
     code = "x = bytearray(64 * 1024 * 1024)\nprint(len(x))"
     sid = _submit(client, "MEM", code).json()["data"]["submission_id"]

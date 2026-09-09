@@ -5,6 +5,7 @@
 注意：本文件用例需真实执行用户代码，仅在 Linux（WSL venv）下可全绿；
 提交后由后台异步评测，用例轮询等待完成，避免与评测线程竞态。
 """
+import sys
 import time
 
 import pytest
@@ -178,6 +179,8 @@ def test_compile_error_cpp(client):
 
 
 def test_compile_ok_cpp_ac(client):
+    if sys.platform == "win32":
+        pytest.skip("cpp 编译评测需 Linux/WSL 环境")
     assert _add_problem(client, "P1").status_code == 200
     cpp = "#include <iostream>\nint main(){long long a,b;std::cin>>a>>b;std::cout<<a+b;}"
     r = _submit(client, "P1", "cpp", cpp)
