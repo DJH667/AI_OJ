@@ -1576,6 +1576,7 @@ def render_task_progress(task_id: str) -> None:
             _clear_form_state("pf_new_")  # AI 预填覆盖旧草稿
             st.session_state["prefill_problem"] = result
             st.session_state["manage_action"] = "new"
+            st.session_state["page"] = "manage"
             st.session_state.pop("ai_open", None)
             st.rerun()
         with st.expander("查看产出 JSON"):
