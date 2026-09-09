@@ -232,7 +232,7 @@ def test_parse_problem_robust_extraction():
         '{"id":"P1","title":"求和","description":"d","input_description":"i",'
         '"output_description":"o","samples":[],"constraints":"c","testcases":[]}\n```'
     )
-    assert problem["id"] == "P1"
+    assert "id" not in problem and problem["title"] == "求和"
     problem2 = ai_pipeline._parse_problem('''{
       "id": "P2", // 注释
       "title": "t",
@@ -243,7 +243,7 @@ def test_parse_problem_robust_extraction():
       "constraints": "c",
       "testcases": [],
     }''')
-    assert problem2["id"] == "P2"
+    assert "id" not in problem2 and problem2["title"] == "t"
 
 
 def test_chat_stream_ignores_reasoning_content(monkeypatch):
@@ -267,6 +267,15 @@ def test_chat_stream_ignores_reasoning_content(monkeypatch):
     out = llm_client.chat([{"role": "user", "content": "hi"}], "u")
     assert "思考中" not in out["content"]
     assert out["content"].startswith("{")
+
+
+def test_parse_problem_drops_model_id():
+    problem = ai_pipeline._parse_problem(json.dumps({
+        "id": "MODEL-ID", "title": "求和", "description": "d",
+        "input_description": "i", "output_description": "o",
+        "samples": [], "constraints": "c", "testcases": [],
+    }))
+    assert "id" not in problem
 
 
 def test_prompt_contains_registered_languages_and_perf_note(client, monkeypatch):
