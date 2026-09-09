@@ -1639,7 +1639,7 @@ def render_ai_monitor_page() -> None:
 
 def _render_model_config() -> None:
     client = get_client()
-    st.caption("选择模型并填写 API Key（支持 OpenRouter 与 DeepSeek 官方直连）；"
+    st.caption("选择模型并填写 API Key（支持 OpenRouter、DeepSeek 官方与千问官方直连）；"
                "模型单价与汇率由系统自动获取真实数据，无需手工填写。不填 Key 走本地 mock。")
     try:
         catalog_data = client.get("/api/ai/models")
@@ -1675,24 +1675,27 @@ def _render_model_config() -> None:
             custom_model = st.text_input(
                 "自定义模型 id",
                 value=custom_prefill,
-                placeholder="如 deepseek-v4-flash / deepseek-v4-pro（DeepSeek 官方）",
+                placeholder="如 deepseek-v4-flash / qwen-plus（官方直连）",
                 key="ai_model_custom",
-                help="填 provider 侧的真实模型 id；DeepSeek 官方不带厂商前缀（deepseek-chat / deepseek-reasoner 已弃用）。")
+                help="填 provider 侧的真实模型 id；官方直连不带厂商前缀（deepseek-chat / deepseek-reasoner 已弃用）。")
         else:
             custom_model = ""
         key = st.text_input("API Key", type="password", key="ai_key",
                             help="留空走本地 mock 演示；Key 仅存本地、不回显。"
-                                 "OpenRouter 与 DeepSeek 官方 key 均支持，与 provider_url 配套使用。")
+                                 "OpenRouter、DeepSeek 官方与千问官方 key 均支持，与 provider_url 配套使用。")
         with st.expander("高级（可选）"):
             provider = st.text_input("provider_url",
                                      value=cfg.get("provider_url") or "https://openrouter.ai/api/v1",
                                      key="ai_provider",
                                      help="OpenAI 兼容接口基址。OpenRouter 填 https://openrouter.ai/api/v1；"
-                                          "DeepSeek 官方填 https://api.deepseek.com。")
+                                          "DeepSeek 官方填 https://api.deepseek.com；"
+                                          "千问官方填 https://dashscope.aliyuncs.com/compatible-mode/v1。")
             st.caption("OpenRouter：模型用厂商前缀 id（如 deepseek/deepseek-v4-pro），Key 用 OpenRouter 的 key；"
-                       "DeepSeek 官方：模型用 deepseek-v4-flash / deepseek-v4-pro（不带前缀），Key 用官网 key。"
+                       "DeepSeek 官方：模型用 deepseek-v4-flash / deepseek-v4-pro（不带前缀），Key 用官网 key；"
+                       "千问官方：模型用 qwen-turbo / qwen-plus / qwen-max（不带前缀），"
+                       "provider_url 填 https://dashscope.aliyuncs.com/compatible-mode/v1，Key 用官网 key。"
                        "旧 id deepseek-chat / deepseek-reasoner 已弃用；"
-                       "混用（OpenRouter 模型 id 配 DeepSeek 官方地址）会报 Model Not Exist。")
+                       "混用（OpenRouter 模型 id 配官方地址）会报 Model Not Exist。")
         submitted = st.form_submit_button("保存配置", key="ai_cfg_save", type="primary", width="stretch")
 
     # 选中模型的真实单价（自动获取，随选择即时更新）

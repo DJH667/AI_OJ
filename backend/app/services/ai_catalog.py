@@ -3,8 +3,9 @@
 - 模型目录：实时拉取 OpenRouter 公开接口 GET /api/v1/models（无需 key），
   解析 pricing（USD/token）× 1M → USD/1M tokens；失败回退内置常用模型表（source=builtin）；
   内置表同时含 DeepSeek 官方直连模型（deepseek-v4-flash/deepseek-v4-pro，
-  2026-09 起 deepseek-chat/deepseek-reasoner 已弃用），
-  供 provider_url=https://api.deepseek.com 场景下拉选择与计价；
+  2026-09 起 deepseek-chat/deepseek-reasoner 已弃用）与千问官方直连模型
+  （qwen-turbo/qwen-plus/qwen-max，provider_url 填
+  https://dashscope.aliyuncs.com/compatible-mode/v1），供官方直连场景下拉选择与计价；
 - 汇率：Frankfurter（ECB，免费无 key）USD→CNY；失败回退内置参考值（source=builtin）；
   2026 年 Frankfurter 域名迁移 api.frankfurter.app → api.frankfurter.dev/v1（旧域 301），
   两域依次尝试；失败/降级走短 TTL 自动重试，不再把一次网络失败缓存 12 小时；
@@ -20,7 +21,7 @@ CURRENCY = "CNY"
 DEFAULT_FX_RATE = 7.2  # USD→CNY 内置参考值（仅网络不可用时兜底，2026-09 参考）
 
 # 内置常用模型（USD/1M tokens；供离线降级与官方直连模型选择）
-# DeepSeek 官方直连价格为官网 CNY 价按兜底汇率 7.2 折算的 USD 估算，
+# DeepSeek/千问官方直连价格为官网 CNY 价按兜底汇率 7.2 折算的 USD 估算，
 # 离线时与内置汇率 7.2 相乘后恰好还原官网 CNY 价，计价自洽。
 BUILTIN_MODELS = [
     {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash（官方直连）",
@@ -35,6 +36,18 @@ BUILTIN_MODELS = [
      "description": "DeepSeek 官方视觉实验模型（支持图片输入；provider_url 填 https://api.deepseek.com）",
      "context_length": 131072,
      "input_price": 0.2083, "output_price": 0.625, "price_unit": PRICE_UNIT},
+    {"id": "qwen-turbo", "name": "Qwen Turbo（千问官方直连）",
+     "description": "通义千问官方快模型（provider_url 填 https://dashscope.aliyuncs.com/compatible-mode/v1，官方 key）",
+     "context_length": 131072,
+     "input_price": 0.0417, "output_price": 0.0833, "price_unit": PRICE_UNIT},
+    {"id": "qwen-plus", "name": "Qwen Plus（千问官方直连）",
+     "description": "通义千问官方主力模型（provider_url 填 https://dashscope.aliyuncs.com/compatible-mode/v1，官方 key）",
+     "context_length": 131072,
+     "input_price": 0.1111, "output_price": 0.2778, "price_unit": PRICE_UNIT},
+    {"id": "qwen-max", "name": "Qwen Max（千问官方直连）",
+     "description": "通义千问官方旗舰模型（provider_url 填 https://dashscope.aliyuncs.com/compatible-mode/v1，官方 key）",
+     "context_length": 131072,
+     "input_price": 0.3333, "output_price": 1.3333, "price_unit": PRICE_UNIT},
     {"id": "openai/gpt-4o-mini", "name": "GPT-4o mini",
      "description": "OpenAI 轻量多模态模型", "context_length": 128000,
      "input_price": 0.15, "output_price": 0.60, "price_unit": PRICE_UNIT},
