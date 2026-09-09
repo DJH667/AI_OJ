@@ -1678,6 +1678,7 @@ def _render_model_config() -> None:
         else:
             custom_model = ""
         key = st.text_input("API Key", type="password", key="ai_key",
+                            value=st.session_state.get("ai_key_display", ""),
                             help="留空走本地 mock 演示；Key 仅存本地、不回显。"
                                  "OpenRouter、DeepSeek 官方与千问官方 key 均支持，与 provider_url 配套使用。")
         with st.expander("高级（可选）"):
@@ -1712,6 +1713,7 @@ def _render_model_config() -> None:
                  "builtin": "内置离线目录"}.get(source, source)
     st.caption(f"汇率 USD→CNY：**{cfg.get('fx_rate')}**（{fx_src}）· 模型目录来源：{src_label}")
     if submitted:
+        st.session_state["ai_key_display"] = key
         try:
             data = client.put("/api/ai/model-config", json={
                 "provider_url": provider, "model": chosen_model, "api_key": key,
