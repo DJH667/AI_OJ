@@ -18,7 +18,7 @@
 | 5 | P3 | `POST /api/users/admin` 无前端入口 | 加按钮 | 待处理 |
 | 6 | P3 | `review` 与需求 `needs_review` 命名不一致 | 统一命名 | ✅ 已处理：官网原文未证 needs_review（出自 9.5 问答定稿），代码保留 review，文档统一为 review |
 | 7 | P3 | mock 模式任务页未标注"模拟用量" | 加说明 | ✅ 已处理（用户口径：mock 不改；自定义模型可选填单价，留空时费用估算显示"未知"） |
-| 8 | P3 | applications/notifications/scope=all 扩展接口未在需求文档登记 | §9 补 polish 扩展清单 | 待处理 |
+| 8 | P3 | applications/notifications/scope=all 扩展接口未在需求文档登记 | §9 补 polish 扩展清单 | ✅ 已处理：PROJECT_REQUIREMENTS §9 决策 22/23（扩展接口登记 + 自定义模型单价） |
 | 9 | P3 | 示例题 P1000/P1001 与自动评测建题 id 冲突风险 | 验收前复核 | 待复核 |
 | 10 | P3 | 题目管理页删除文案与审批流不一致 | 改文案 | ✅ 已处理 `5ab8054` |
 

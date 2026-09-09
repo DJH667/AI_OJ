@@ -43,11 +43,12 @@
 └──────────────────────────────┬───────────────────────────┘
                                │  JSON 文件
                                ▼
-        backend/data/  problems/ users/ submissions/ logss/ sessions/
-                      ai_tasks/ ai_configs/ applications/ notifications/
+        backend/data/  problems/ users/ submissions/ languages/
+                      logs/(access/ role_changes/) sessions/ ai_tasks/
+                      ai_configs/ applications/ notifications/ site_config.json
 ```
 
-- **通信契约**：仅 REST API + `{code, msg, data}` + HTTP 状态码；前端不新增独立业务接口、不发散自建路径。
+- **通信契约**：基础模块严格遵循 api.md——仅 REST API + `{code, msg, data}` + HTTP 状态码，**未新增 api.md 契约变体**；在此基础上按产品需求附加的扩展接口（题目修改/删除申请、通知、站点开关 `site-config`、submissions `scope=all` 等）为独立新路径，已在 `PROJECT_REQUIREMENTS.md §9`（决策 22）登记。
 - **会话传递**：后端 `SessionMiddleware` 下发 Cookie（仅 uuid4 会话 id）；前端用统一 HTTP 客户端（httpx/requests 会话）保存并回传 Cookie。Streamlit 运行于服务进程，无浏览器 CORS 同源问题。
 - **评测执行要求 Linux**（`python3`/`g++`）：后端与评测在 **WSL2/Ubuntu** 运行（venv `~/oj-venv`）；Windows `.venv` 含 streamlit 用于起前端，经 WSL2 localhost 转发访问后端。
 
@@ -89,11 +90,11 @@
 │   │   │                         # security bcrypt / messages 全站 msg 契约表
 │   │   ├── db/                    # store 全 JSON 存储(percent-encode+原子写) / seed 幂等建管理员
 │   │   ├── api/                   # 路由层：deps 鉴权依赖 / auth / users / problems
-│   │   │                         # languages / submissions / logs / reset / ai / applications / notifications
+│   │   │                         # languages / submissions / logs / reset / ai / applications / notifications / site
 │   │   └── services/              # 业务层：sessions / users / problems / languages
 │   │                             #   submissions / judge / runner / pagination / logs
 │   │                             #   ai_config / llm_client / ai_tasks / ai_verify / ai_pipeline
-│   │                             #   applications / notifications / ai_catalog
+│   │                             #   applications / notifications / ai_catalog / site_config
 │   ├── sample_problems/           # 示例题 P1000/P1001（版本库内，幂等种入）
 │   ├── tests/                     # pytest 用例（d1–d6 + polish 扩展）
 │   └── conftest.py
@@ -150,7 +151,7 @@
 - **对拍引擎**（兼容所有已注册语言，经 `runner.py` 共用编译/运行原语）：数据生成器产**多档规模数据**（小/中/大，按期望复杂度推导，使 O(N²) 类中小点可过、大点 TLE → 部分分梯度）→ 标答算 expected → 小规模点用暴力对照验证 → 通过采纳；不一致/异常 → 生成**错误摘要回传 AI 重试**（≤retry_limit）→ 用尽：completed + **review** + 错误摘要（**题目不入库**）。
 - **重试闭环**：硬核首次失败后，把 VerifyError 摘要作为 user 反馈追加再请求；`retry_limit`（默认 2 → 最多 3 次调用）。
 - **语言双层防护**：结构化输入 API 层校验未注册语言 → 400；纯文本产出 `language ∉ 已注册` → 任务 failed + 清晰原因与可用列表（prompt 先要求模型遇未注册语言直接产出"语言不支持"）。
-- **计费（R4）**：`estimate_cost = 输入token/单位×input_price + 输出token/单位×output_price`；多轮调用 token 累计后统一计费；单价按所选模型从 OpenRouter 实时目录/内置表自动取得，单位 1_000_000（每 1M tokens）；`fx_rate` 由 Frankfurter（ECB）**自动拉取**（失败回退内置参考值 7.2，5 分钟后自动重试），折算 **CNY** 展示；mock 也走同一 usage/cost 结构。**生成期间按流式 chunk 估算 token 并约每秒落盘**，前端轮询可见 token/费用实时增长，结束后以服务端 usage 为准。
+- **计费（R4）**：`estimate_cost = 输入token/单位×input_price + 输出token/单位×output_price`；多轮调用 token 累计后统一计费；单价按所选模型从 OpenRouter 实时目录/内置表自动取得，单位 1_000_000（每 1M tokens）；`fx_rate` 由 Frankfurter（ECB）**自动拉取**（失败回退内置参考值 7.2，5 分钟后自动重试），折算 **CNY** 展示；mock 也走同一 usage/cost 结构。**自定义模型**（不在目录中）可在配置页选填 `input_price/output_price`（USD/1M），留空则费用估算显示「未知」（不冒充 0 价）。**生成期间按流式 chunk 估算 token 并约每秒落盘**，前端轮询可见 token/费用实时增长，结束后以服务端 usage 为准。
 - **中断**：`cancel_requested` 标志 + 执行阶段 `_guard_interrupted`（写状态前读最新任务、中断不再被覆盖）；cancel 置 interrupted，对已完成任务返回 409。
 - **私有字段**：题目采纳后落库 `difficulty_score` + `ai_meta`（语言/生成器/标答/暴力代码/重试次数），仅服务端存储、**不进任何对外 API**（题目 CRUD 不收发）。
 
@@ -173,7 +174,7 @@
 - **题库**：分页圆角卡片（编号、难度、标签、通过率条），按编号/标题搜索，点击进入详情。
 - **题目详情**：左侧题面（描述/输入输出/样例/约束/提示），右侧栏提交代码（语言选择 + 大文本框 + "提交评测"）、近 3 次提交自动刷新、查询提交记录入口。
 - **查询提交记录**：按题目/状态筛选、时间倒序、自动刷新；判定徽章按得分区分（全对=通过、部分对=部分通过、0 分=未通过）；错误细分（CE/评测错误）。
-- **题目管理**：搜索、编辑/删除图标、新增题目、**语言管理**（注册新语言，见下）与 AI 命题入口；普通用户改/删走**申请-审批流**（管理员审批），管理员直接改/删。
+- **题目管理**：搜索、编辑/删除图标、新增题目、**语言管理**（注册新语言，见下）与 AI 命题入口；普通用户改/删走**申请-审批流**（管理员审批），管理员直接改/删；管理员可在「个人 → 站点设置」关闭"允许普通用户编辑题目"（默认开，关闭后编辑入口与申请均被拒绝）。
 - **个人**：信息卡（右侧未读消息数）+ 查询入口 + **信息中心**（AI 生题完成/申请审批结果通知，可跳转任务或题目，单条/全部已读）；侧边栏「个人」带未读角标；管理员可用户管理与申请审批。
 - **AI 命题**：模型配置（per-user，下拉选模型自动带单价/汇率，Key 已配置不回显）、结构化表单 + 纯文本两种输入、硬核开关与重试调节、任务页每 2s 轮询显示阶段/已用时间/Token/费用（CNY）、cancel 中断、产出预填题目新增/编辑、对拍用尽进入"需人工复核 + 错误摘要"；**AI 监控页**集中查看全部任务。
 - **语言管理**：列出已注册语言；任意登录用户可注册新语言（name/file_ext/run_cmd 必填，compile_cmd 与 time/memory_limit 可选，命令模板 {src}/{exe} 自动替换为路径），注册后立即可用于提交评测与 AI 命题语言下拉。
@@ -236,7 +237,7 @@
 1. **需求对齐**：AI 通读官方全部页面，产出 `PROJECT_REQUIREMENTS.md`（需求分析 + 通过"用户决策 dec-*"记录每个歧义点的定案）与 `WORK_PLAN.md`（进度计划）。
 2. **分日实施**：按官方 Step + 内部依赖排期（Step4→Step1/2→Step3→Step5→Step6→AI），每日完成一个主题；每阶段 AI 产出一份《实现说明 + 代码导读 + 自测清单》（`d1–d6-implementation-notes.md`）供用户自行消化。
 3. **评审迭代**：每轮 AI 自查 + 用户提供的外部评审意见，同步登记 `reports/review-findings.md` 并回填处理状态（含 P1/P2/P3 分级）；评审问题同时写入 `comments/`。
-4. **助教问答归档**：把 api.md 的歧义点整理成 `reports//ta-qa-pending.md` 携带原义向助教提问，拿到答复后回填并同步 `PROJECT_REQUIREMENTS.md §9`（如 429 单人单题、access 筛选、CE 归属、日志可见性三态、统计实时重算）。
+4. **助教问答归档**：把 api.md 的歧义点整理成 `reports/ta-qa-pending.md` 携带原义向助教提问，拿到答复后回填并同步 `PROJECT_REQUIREMENTS.md §9`（如 429 单人单题、access 筛选、CE 归属、日志可见性三态、统计实时重算）。
 5. **双通道并行打磨**：基础骨架由 AI 协作会话完成（D1–D6）；`polish/` 与若干高级功能（题目申请/删除审批、通知中心、千问直连、AI 监控页、流式 token 估算、hint 分离、Cookie 修复、Windows 并发写退避等）由用户的**另一会话**完成并合并入库——"打磨功能纳入验收与报告口径，不深改"。AI 负责维护评审台账与测试稳定性记录。
 6. **风险预案**：WORK_PLAN/评审台账中保留"时间吃紧则 AI 收缩为 R1–R4 + 硬核单轮对拍（保底约 4–5 分），基础与报告不挤占"等预案。
 
@@ -265,7 +266,7 @@
 ### 6.1 收获
 
 1. **前后端分离 + 严格契约**：以 REST API + `{code,msg,data}` + HTTP 状态码为唯一契约，理解了"前后端以接口为准、权限在后端"的分层思想。
-2. **异步与并发**：`asyncio.create_task` 实现异步评测，`asyncio.Lock` 串行化评测任务，理解"API 立即返回 pending、后台执行"与测试必须轮询等待的取舍。
+2. **异步与并发**：`asyncio.create_task` 实现异步评测，评测任务经 `threading.Lock`（`JUDGE_LOCK`，线程池 `to_thread` 内）串行化，理解"API 立即返回 pending、后台执行"与测试必须轮询等待的取舍。
 3. **评测器正确性**：编译/运行/资源限制/输出归一比对/状态机/计分的完整链路，以及 MLE 的内存监控实现。
 4. **鉴权与安全**：服务端 Session 的"可立即失效"优势、banned 即时失效、bcrypt 与敏感信息脱敏。
 5. **统计口径与一致性**：submit/resolve_count 的实时重算、删除级联回退、rejudge 语义，理解"数据与统计一致性"的维护成本。
@@ -274,7 +275,7 @@
 ### 6.2 改进建议
 
 1. **官方 Step 顺序与内部依赖不完全一致**（先鉴权、再评测），需自定开发序；建议官方在评分细则中附依赖图。
-2. **测试稳定性**：全量测试存在顺序性 flaky（82 用例偶发 1–3 红），建议收敛后台评测任务的夹具 teardown、对含全局状态的接口做隔离。
+2. **测试稳定性**：WSL 全量偶发**环境级顺序 flaky**——AI 用例在 TestClient 高频轮询场景下偶报 `OSError [Errno 61]`/404（单测与子集复跑全部通过，9.9 尝试"后台任务收敛 fixture"后失败率未降，判定为 TestClient/anyio portal 时序问题而非业务缺陷）。标准执行口径：验收前全量跑 2 轮，出现失败即对失败用例 `pytest --lf`/单文件复跑确认（评测后台任务收敛 `_drain_judges` 已生效于 judge 类用例）。
 3. **素材收集滞后**：报告截图与边界结果应随开发"顺手采集"，而非临近截止突击（本次已建立 `report-assets.md` 但截图仍待补）。
 4. **并发写与集中状态**：全 JSON 存储在单用户串行下够用，但多用户并发/多进程时需引入锁或数据库；内存/超时采样间隔与并发开销需平衡。
 5. **AI 依赖外部 key**：真实联调依赖模型 key；**汇率已实现自动拉取（Frankfurter/ECB，离线内置参考值兜底）**，后续可继续扩展更多厂商目录与官方直连模型。
@@ -304,7 +305,7 @@
 
 1. **AI 使用比例表（5.3）**：为估计初稿，需用户用各文件 git blame/实际协作记录核定（评分点不单独计分，但硬性要求写明）。
 2. **界面截图**：`report-assets.md` 目前仅归档 MLE 样例 JSON 摘录与复现命令；完整界面截图（登录/题库/详情/提交/日志三态/AI 命题/越权提示/AC vs 部分分梯度）待采集后插入本报告 §4.1/§4.2。
-3. **测试全量数**：Windows 全量为 **84 passed + 2 skipped**（2026-09-09 实测）；WSL Linux 侧需在验收前跑**连续两轮全绿**（WSL 下不跳过 cpp/MLE 用例）并用实际数字替换。
+3. **测试全量数**：Windows 本地全量为 **84 passed + 2 skipped**（2026-09-09 实测，skip 为 WSL-only 的 cpp/MLE 用例）；WSL Linux 全量需在验收前按「连续 2 轮全绿、失败用例 `--lf`/单文件复跑确认」的标准执行，并用实际数字替换（9.9 现状：WSL 全量约 86 用例，AI 用例存在上述环境级偶发 flaky，见 §6.2 第 2 条）。
 4. **PDF 生成**：当前环境无 pandoc/markdown+weasyprint 等转换工具，本报告为 Markdown。可在安装后执行：
    ```bash
    pip install markdown weasyprint

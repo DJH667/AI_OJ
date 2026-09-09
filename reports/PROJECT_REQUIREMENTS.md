@@ -214,6 +214,8 @@
 19. **AI 落库 testcases 全量**（同）：采纳题目含 samples（展示）+ testcases 全量（对外契约字段）+ 私有键。
 20. **model-config per-user**（用户判定 2026-09-07）：每个登录用户自行配置自己的 provider/model/api_key（无需管理员），存 `ai_configs/{username}`、reset 不清。
 21. **计费 CNY**（同）：input/output 单价按 OpenRouter 美元价录入，费用 = token/单位×单价(USD)×fx_rate 以 CNY 展示；fx_rate 默认 7.2（参考人民银行中间价，2026-09），用户可按当日更新。
+22. **polish 扩展接口登记（2026-09-09，全量检查 #8）**：在 api.md 基础契约之外**新增的独立扩展路径**（不改写任何既有接口语义）：题目修改/删除申请（`POST /api/problems/{id}/apply`、`GET /api/applications/`、`PUT /api/applications/{id}`）、通知（`GET/PUT /api/notifications*`）、站点开关（`GET /api/site-config` 登录可读 / `PUT` 仅管理员，`allow_user_edit` 默认开）、submissions 列表 `scope=all`（仅管理员全量）、`GET /api/problems/{id}/log_visibility`（仅管理员只读查询）。AI 模块接口（`/api/ai/*`）按官方"可等价替换"条款另行文档化（ai-alignment-notes/d6 notes）。
+23. **自定义模型单价（2026-09-09，全量检查 #7）**：模型不在目录时用户可自行填写 `input_price/output_price`（USD/1M，可选）；留空表示"未知"，费用估算与页面显示「未知」，不再默认 0.0 冒充已知价。
 
 **假设（未获用户否定前按此推进）：**
 4. **环境**：Windows 上开发，WSL2 + Ubuntu 做评测测试（Ubuntu 尚未安装，列入环境搭建首日）。
