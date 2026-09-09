@@ -36,9 +36,20 @@ SYSTEM_PROMPT = """你是一个 OJ 命题助手。严格只输出一个 JSON（�
 - 若无法按要求完成（如语言不在已注册列表中），输出 {"error": "简短原因"}，不要生成题目。"""
 
 
-def _language_perf_note(language_name: str | None) -> str:
-    """按目标语言给出数据规模/性能提示，避免模型按 C++ 规模出题导致 Python 超时。"""
+def _language_perf_note(language_name: str | None, ignore_complexity: bool = False) -> str:
+    """按目标语言给出数据规模/性能提示，避免模型按 C++ 规模出题导致 Python 超时。
+
+    ignore_complexity=True 时不考察复杂度：不构造卡高复杂度算法的大数据点，
+    改为要求模型把测试点重心放在边界/极端/多组数据等 edge cases 上。
+    """
     lang = (language_name or "").strip().lower()
+    if ignore_complexity:
+        lang_label = lang or "所选语言"
+        return (
+            "复杂度要求：本题不考察复杂度——不要构造让高复杂度算法（如 O(n^2)）超时的大数据点；"
+            "请把测试点重心放在边界情况、极端输入、多组数据等 edge cases 上。"
+            f"性能提示：数据规模只需保证 {lang_label} 正解在 time_limit 内可过。"
+        )
     if lang in ("python", "python3", "py"):
         return (
             "性能提示：目标语言为 Python（解释执行，比 C++ 慢约一个数量级）。"
@@ -149,7 +160,7 @@ def run_task(task_id: str) -> None:
             f"命题需求：{task.get('requirement')}\n"
             f"已注册语言列表：{langs_text}\n"
             f"{lang_line}\n"
-            f"{_language_perf_note(target_lang)}\n"
+            f"{_language_perf_note(target_lang, bool(task.get('ignore_complexity')))}\n"
             + ref
             + ("模式：硬核（必须给出 meta 三代码，测试点须经对拍校验）" if task.get("hardcore")
                else "模式：普通（直接给出完整 samples 与 testcases）")

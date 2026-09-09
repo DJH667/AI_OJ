@@ -1341,7 +1341,7 @@ def render_ai_page() -> None:
         _render_model_config()
 
     mode = st.segmented_control("输入方式", ["结构化表单", "纯文本"], default="结构化表单")
-    requirement, language, problem_id, hardcore, retry_limit = "", None, None, False, 2
+    requirement, language, problem_id, hardcore, retry_limit, ignore_complexity = "", None, None, False, 2, False
     if mode == "结构化表单":
         languages = _available_languages()
         if not languages:
@@ -1368,6 +1368,10 @@ def render_ai_page() -> None:
             scale = st.text_input("自定义规模", key="scale_other")
         background = st.text_area("情景/背景故事（可选）", key="ai_bg")
         note = st.text_area("备注（可选）", key="ai_note")
+        ignore_complexity = st.checkbox(
+            "本题不考虑复杂度（不卡高复杂度算法，强化边界/极端用例）",
+            value=False, key="ignore_complexity",
+            help="选中后提示词会要求模型少构造卡复杂度的大数据点，多覆盖 edge cases。")
         problems = _available_problems()
         ref_opts = [p["id"] for p in problems]
         title_by_id = {p["id"]: p.get("title") or "未命名题目" for p in problems}
@@ -1409,7 +1413,8 @@ def render_ai_page() -> None:
         if not requirement.strip():
             st.error("命题需求不能为空")
             return
-        body = {"requirement": requirement, "hardcore": hardcore, "retry_limit": retry_limit}
+        body = {"requirement": requirement, "hardcore": hardcore, "retry_limit": retry_limit,
+                "ignore_complexity": ignore_complexity}
         if language:
             body["language"] = language
         if problem_id:
@@ -1487,6 +1492,8 @@ def render_task_progress(task_id: str) -> None:
         st.caption(f"自动汇率 {usage['fx_rate']}（{usage.get('fx_source', '')}）· {usage.get('currency', 'CNY')}")
     if data.get("hardcore"):
         st.caption(f"硬核模式 · 对拍尝试 {data.get('attempts', 0)} 次（最多 {data.get('retry_limit', 0) + 1} 次）")
+    if data.get("ignore_complexity"):
+        st.caption("本题不考察复杂度（强化边界/极端用例）")
 
     if data.get("review"):
         st.warning(f"需人工复核：{data.get('review_note', '')}")
@@ -1507,7 +1514,8 @@ def render_task_progress(task_id: str) -> None:
     elif data.get("review"):
         if st.button("🔄 以相同需求重试（新任务）"):
             body = {"requirement": data.get("requirement", ""), "hardcore": True,
-                    "retry_limit": data.get("retry_limit", 2)}
+                    "retry_limit": data.get("retry_limit", 2),
+                    "ignore_complexity": data.get("ignore_complexity", False)}
             if data.get("language"):
                 body["language"] = data["language"]
             try:

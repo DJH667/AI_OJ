@@ -193,6 +193,26 @@ def test_prompt_contains_registered_languages_and_perf_note(client, monkeypatch)
     assert "性能提示" in user_content and "C++" in user_content
 
 
+def test_prompt_ignore_complexity_emphasizes_edge_cases(client, monkeypatch):
+    captured = {}
+
+    def fake_chat(messages, username, temperature=0.2):
+        captured["messages"] = messages
+        return {"content": json.dumps(_fake_problem()),
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5}, "mock": True}
+
+    monkeypatch.setattr(llm_client, "chat", fake_chat)
+    r = client.post("/api/ai/problem-tasks/", json={
+        "requirement": "一道求和题", "language": "python", "ignore_complexity": True,
+    })
+    assert r.status_code == 200
+    data = _wait_task(client, r.json()["data"]["task_id"])
+    assert data["ignore_complexity"] is True
+    user_content = captured["messages"][1]["content"]
+    assert "不考察复杂度" in user_content and "edge cases" in user_content
+    assert "不要构造让高复杂度算法（如 O(n^2)）超时的大数据点" in user_content
+
+
 # ---------- 权限 / 中断 ----------
 
 def test_task_permissions_and_cancel(client):

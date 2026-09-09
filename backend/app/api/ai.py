@@ -58,6 +58,7 @@ class TaskBody(BaseModel):
     problem_id: str | None = None
     hardcore: bool = False
     retry_limit: int = Field(default=2, ge=0, le=10)
+    ignore_complexity: bool = False
 
 
 @router.post("/api/ai/problem-tasks/")
@@ -67,7 +68,7 @@ async def create_task(body: TaskBody, current: dict = Depends(get_current_user))
     if body.problem_id is not None and problems.get(body.problem_id) is None:
         raise ApiError(404, messages.PROBLEM_NOT_FOUND)
     task = ai_tasks.create(current, body.requirement, body.language, body.problem_id,
-                           body.hardcore, body.retry_limit)
+                           body.hardcore, body.retry_limit, body.ignore_complexity)
     threading.Thread(target=ai_pipeline.run_task, args=(task["task_id"],), daemon=True).start()
     return success(msg="task created", data={"task_id": task["task_id"], "status": task["status"]})
 
@@ -86,7 +87,7 @@ async def get_task(task_id: str, current: dict = Depends(get_current_user)):
     task = _task_or_403(task_id, current)
     data = {k: task.get(k) for k in (
         "task_id", "status", "phase", "progress", "requirement", "language", "problem_id",
-        "hardcore", "attempts", "retry_limit", "result", "review", "review_note", "usage", "error",
+        "hardcore", "attempts", "retry_limit", "ignore_complexity", "result", "review", "review_note", "usage", "error",
         "created_at", "started_at", "finished_at", "updated_at",
     )}
     return success(msg="success", data=data)

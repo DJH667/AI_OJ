@@ -33,7 +33,7 @@ def next_task_id() -> str:
 
 
 def create(user: dict, requirement: str, language: str | None, problem_id: str | None,
-           hardcore: bool, retry_limit: int) -> dict:
+           hardcore: bool, retry_limit: int, ignore_complexity: bool = False) -> dict:
     task_id = next_task_id()
     task = {
         "task_id": task_id,
@@ -46,6 +46,7 @@ def create(user: dict, requirement: str, language: str | None, problem_id: str |
         "problem_id": problem_id,
         "hardcore": hardcore,
         "retry_limit": retry_limit,
+        "ignore_complexity": bool(ignore_complexity),
         "attempts": 0,
         "phase": "waiting",       # 当前阶段（waiting/generating/verifying/adjusting/completed/…）
         "started_at": None,       # 开始执行时间（首次进入 running）
