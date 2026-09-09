@@ -443,14 +443,24 @@ def render_sidebar() -> None:
         st.markdown(f"**{u.get('username', '未知用户')}** · :violet-badge[{ROLE_TEXT.get(role, role)}]")
         st.space("small")
         page = st.session_state.get("page", "problems")
+        unread = _unread_count_safe()
         for label, icon, key in NAV_ITEMS:
             active = page == key
-            if st.button(f"{icon} {label}", key=f"nav_{key}",
+            display = f"{label}（{unread}）" if key == "profile" and unread else label
+            if st.button(f"{icon} {display}", key=f"nav_{key}",
                          type="primary" if active else "secondary", width="stretch"):
                 _goto(key)
         st.space("medium")
         if st.button(":material/logout: 退出登录", key="logout", width="stretch"):
             _logout()
+
+
+def _unread_count_safe() -> int:
+    """侧边栏个人项未读消息数（后端无该接口/未重启时回退 0）。"""
+    try:
+        return int(get_client().get("/api/notifications/unread-count").get("unread", 0))
+    except (ApiClientError, TypeError, ValueError):
+        return 0
 
 
 def _logout() -> None:
