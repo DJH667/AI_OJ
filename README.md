@@ -5,7 +5,8 @@
 ## 一键启动（Windows）
 
 双击 **`start.cmd`**：WSL 起后端（:8000）→ 前端 Streamlit（:8501）→ 自动打开浏览器。
-停止后端：`stop.cmd`（后端为后台进程，无独立窗口）。详细使用见 `reports/USER_GUIDE.md`。
+停止后端：`stop.cmd`（后端为后台进程，无独立窗口）。
+出厂级清除：`clear.cmd`（先停后端，再删 `backend/data/` 全部运行期数据，代码/文档不受影响；清完用 `start.cmd` 恢复全新环境）。详细使用见 `reports/USER_GUIDE.md`。
 
 ## 前端页面（polish 2026-09-08）
 
