@@ -6,7 +6,7 @@
 
 双击 **`start.cmd`**：WSL 起后端（:8000）→ 前端 Streamlit（:8501）→ 自动打开浏览器。
 停止后端：`stop.cmd`（后端为后台进程，无独立窗口）。
-出厂级清除：`clear.cmd`（先停后端，再删 `backend/data/` 全部运行期数据，代码/文档不受影响；清完用 `start.cmd` 恢复全新环境）。详细使用见 `reports/USER_GUIDE.md`。
+出厂级清除：`clear.cmd`（先停后端，再删 `backend/data`、`backend/data_test` 及 `OJ_DATA_DIR` 指向仓库内的全部运行期数据目录，代码/文档不受影响；清完用 `start.cmd` 恢复全新环境）。详细使用见 `reports/USER_GUIDE.md`。
 
 ## 前端页面（polish 2026-09-08）
 
@@ -36,10 +36,13 @@
 ├── scripts/            # 启动/冒烟脚本（start-backend.sh、app_smoke.py）
 ├── polish/             # polish 计划与打磨说明
 ├── reports/            # 面向用户的文档（需求分析、进度计划、每日实现说明…）
+├── technical_report/   # 实验报告源稿（EXP_REPORT.md + 截图）
 └── requirements.txt    # Python 依赖（venv: .venv/，Python 3.14）
 ```
 
-> 运行期数据（用户/题目/提交/日志）生成于 `backend/data/`，已 gitignore，不进版本库。
+> 运行期数据（用户/题目/提交/日志/会话/AI 任务与配置等）默认存 `backend/data/`
+> （见 `backend/app/config.py` 的 `DATA_DIR`），可用环境变量 `OJ_DATA_DIR` 覆盖
+> （如测试隔离用 `backend/data_test`）；两者均已 gitignore，不进版本库。
 
 ## 常用命令
 
@@ -66,3 +69,4 @@ wsl ~/oj-venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000
 - `PROJECT_REQUIREMENTS.md` — 需求分析 v2（含官方澄清与用户决策记录，开发/验收对照基准）
 - `WORK_PLAN.md` — 工作进度计划 v2（9.3–9.10）
 - `d1-implementation-notes.md` — 每日实现说明与代码导读（您自行消化的材料）
+- `technical_report/EXP_REPORT.md` — 实验报告源稿（同目录截图素材；PDF 最终提交网络学堂）

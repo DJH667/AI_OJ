@@ -29,6 +29,9 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
+# ---------- 报告 PDF（源稿 *.md 入库；PDF 提交网络学堂，不进 git）----------
+*.pdf
+
 # ---------- IDE / OS ----------
 .idea/
 .vscode/
