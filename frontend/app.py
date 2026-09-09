@@ -1690,8 +1690,12 @@ def _render_model_config() -> None:
             custom_model = ""
         key = st.text_input("API Key", type="password", key="ai_key",
                             value=st.session_state.get("ai_key_display", ""),
+                            placeholder=("已配置（留空保存则保持原 Key）"
+                                         if cfg.get("api_key_configured") else "sk-..."),
                             help="留空走本地 mock 演示；Key 仅存本地、不回显。"
                                  "OpenRouter、DeepSeek 官方与千问官方 key 均支持，与 provider_url 配套使用。")
+        if cfg.get("api_key_configured") and not st.session_state.get("ai_key_display"):
+            st.caption("已保存 API Key（出于安全不回显；留空保存会沿用已存 Key）。")
         with st.expander("高级（可选）"):
             provider = st.text_input("provider_url",
                                      value=cfg.get("provider_url") or "https://openrouter.ai/api/v1",
