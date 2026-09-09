@@ -14,6 +14,8 @@ STATUS_COMPLETED = "completed"
 STATUS_INTERRUPTED = "interrupted"
 STATUS_FAILED = "failed"
 
+TERMINAL_STATUSES = {STATUS_COMPLETED, STATUS_INTERRUPTED, STATUS_FAILED}
+
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
@@ -45,6 +47,9 @@ def create(user: dict, requirement: str, language: str | None, problem_id: str |
         "hardcore": hardcore,
         "retry_limit": retry_limit,
         "attempts": 0,
+        "phase": "waiting",       # 当前阶段（waiting/generating/verifying/adjusting/completed/…）
+        "started_at": None,       # 开始执行时间（首次进入 running）
+        "finished_at": None,      # 终态时间（completed/interrupted/failed）
         "result": None,
         "review": False,       # 需人工复核标记（对拍用尽/普通产出需人审）
         "review_note": "",
@@ -69,6 +74,18 @@ def get(task_id: str) -> dict | None:
 
 def set_status(task: dict, status: str, progress: str | None = None) -> None:
     task["status"] = status
+    if progress is not None:
+        task["progress"] = progress
+    if status == STATUS_RUNNING and not task.get("started_at"):
+        task["started_at"] = _now_iso()
+    if status in TERMINAL_STATUSES and not task.get("finished_at"):
+        task["finished_at"] = _now_iso()
+    save(task)
+
+
+def set_phase(task: dict, phase: str, progress: str | None = None) -> None:
+    """更新任务阶段（供前端轮询展示：生成题目 / 对拍校验 / 调整数据 等）。"""
+    task["phase"] = phase
     if progress is not None:
         task["progress"] = progress
     save(task)

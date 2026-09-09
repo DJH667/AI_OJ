@@ -65,6 +65,7 @@ def _guard_interrupted(task_id: str) -> bool:
     if t.get("cancel_requested"):
         if t["status"] != ai_tasks.STATUS_INTERRUPTED:
             ai_tasks.set_status(t, ai_tasks.STATUS_INTERRUPTED, "任务已中断")
+            ai_tasks.set_phase(t, "interrupted", "任务已中断")
         return True
     return False
 
@@ -91,8 +92,17 @@ def run_task(task_id: str) -> None:
     username = task.get("username") or "admin"
     if _guard_interrupted(task_id):
         return
-    ai_tasks.set_status(task, ai_tasks.STATUS_RUNNING, "正在处理命题需求")
+    ai_tasks.set_status(task, ai_tasks.STATUS_RUNNING, "正在生成题目与测试点")
+    ai_tasks.set_phase(task, "generating", "正在生成题目与测试点")
     usage_acc = {"prompt_tokens": 0, "completion_tokens": 0}
+
+    def record_usage() -> None:
+        """每轮 LLM 调用后立即落盘 usage/费用，供前端轮询看到实时消耗。"""
+        t = ai_tasks.get(task_id)
+        if t is None:
+            return
+        t["usage"] = ai_config.estimate_cost(usage_acc, username)
+        ai_tasks.save(t)
 
     def finish(status: str, progress: str, **fields) -> None:
         if _guard_interrupted(task_id):
@@ -100,7 +110,9 @@ def run_task(task_id: str) -> None:
         t = ai_tasks.get(task_id)
         if t is None:
             return
+        phase = fields.pop("phase", status)
         t.update(fields)
+        t["phase"] = phase
         t["usage"] = ai_config.estimate_cost(usage_acc, username)
         ai_tasks.save(t)
         ai_tasks.set_status(t, status, progress)
@@ -119,42 +131,50 @@ def run_task(task_id: str) -> None:
             {"role": "user", "content": user_prompt},
         ]
         max_calls = (task.get("retry_limit", 0) or 0) + 1  # retry_limit 为额外重试次数
+        attempt = 0
 
         while True:
             if _guard_interrupted(task_id):
                 return
+            t = ai_tasks.get(task_id)
+            if attempt == 0:
+                ai_tasks.set_phase(t, "generating", "正在生成题目与测试点")
+            else:
+                ai_tasks.set_phase(t, "adjusting", f"对拍未通过，正在调整题目数据（第 {attempt} 次重试）")
             resp = llm_client.chat(messages, username)
             usage_acc["prompt_tokens"] += int(resp["usage"].get("prompt_tokens", 0))
             usage_acc["completion_tokens"] += int(resp["usage"].get("completion_tokens", 0))
+            record_usage()  # 每轮调用后落盘 token/费用，前端轮询可见
             if _guard_interrupted(task_id):  # chat 返回后先查中断，不再被 RUNNING/终态覆盖
                 return
 
             try:
                 problem = _parse_problem(resp["content"])
             except ValueError as exc:
-                finish(ai_tasks.STATUS_FAILED, "解析失败", error=str(exc), result=None)
+                finish(ai_tasks.STATUS_FAILED, "解析失败", phase="failed", error=str(exc), result=None)
                 return
             if problem.get("error"):
-                finish(ai_tasks.STATUS_FAILED, "模型拒绝（语言不支持等）", error=str(problem["error"]), result=None)
+                finish(ai_tasks.STATUS_FAILED, "模型拒绝（语言不支持等）", phase="failed",
+                       error=str(problem["error"]), result=None)
                 return
 
             language_name = task.get("language") or problem.get("language") or "python"
             if languages.get(language_name) is None:
                 available = ", ".join(languages.all_names())
-                finish(ai_tasks.STATUS_FAILED, "语言不支持",
+                finish(ai_tasks.STATUS_FAILED, "语言不支持", phase="failed",
                        error=f"language not supported: {language_name}; available: {available}", result=None)
                 return
             problem["language"] = language_name
 
             if not task.get("hardcore"):
-                finish(ai_tasks.STATUS_COMPLETED, "命题完成", result=problem)
+                finish(ai_tasks.STATUS_COMPLETED, "命题完成", phase="completed", result=problem)
                 return
 
             # 硬核：对拍
             if _guard_interrupted(task_id):
                 return
             t = ai_tasks.get(task_id)
-            ai_tasks.set_status(t, ai_tasks.STATUS_RUNNING, "硬核对拍校验中")
+            ai_tasks.set_phase(t, "verifying", "对拍校验中（校验生成器/标答/暴力代码与测试点）")
             try:
                 verified = ai_verify.verify_problem(problem, language_name)
             except ai_verify.VerifyError as exc:
@@ -162,22 +182,23 @@ def run_task(task_id: str) -> None:
                 if _guard_interrupted(task_id):
                     return
                 t["attempts"] = t.get("attempts", 0) + 1
+                attempt = t["attempts"]
                 ai_tasks.save(t)
-                if t["attempts"] >= max_calls:
-                    finish(ai_tasks.STATUS_COMPLETED, "对拍未通过，需人工复核",
-                           review=True, review_note=f"对拍 {t['attempts']} 次未通过，请人工复核：{exc}",
+                if attempt >= max_calls:
+                    finish(ai_tasks.STATUS_COMPLETED, "对拍未通过，需人工复核", phase="completed",
+                           review=True, review_note=f"对拍 {attempt} 次未通过，请人工复核：{exc}",
                            result=None)
                     return
                 messages = messages[:1] + [{
                     "role": "user",
-                    "content": f"对拍未通过（第 {t['attempts']} 次），错误摘要：{exc}\n请修正代码/生成器后重新只输出完整 JSON。",
+                    "content": f"对拍未通过（第 {attempt} 次），错误摘要：{exc}\n请修正代码/生成器后重新只输出完整 JSON。",
                 }]
                 continue
             # 对拍通过：以对拍集作为 testcases（无错误数据、含梯度）
             if _guard_interrupted(task_id):
                 return
             problem["testcases"] = verified
-            finish(ai_tasks.STATUS_COMPLETED, "对拍通过，命题完成", result=problem)
+            finish(ai_tasks.STATUS_COMPLETED, "对拍通过，命题完成", phase="completed", result=problem)
             return
     except Exception as exc:  # 兜底（安全消息；若已中断保持 interrupted）
         if _guard_interrupted(task_id):

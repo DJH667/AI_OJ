@@ -13,6 +13,7 @@
 import json
 import math
 import time
+from datetime import datetime
 
 import streamlit as st
 
@@ -1423,21 +1424,70 @@ def render_ai_page() -> None:
         render_task_progress(st.session_state["ai_task_id"])
 
 
+def _fmt_elapsed(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+
+
+def _iso_seconds(value) -> float | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value)).timestamp()
+    except ValueError:
+        return None
+
+
+@st.fragment(run_every=2)
 def render_task_progress(task_id: str) -> None:
     client = get_client()
-    st.subheader(f"任务 {task_id}")
-    if st.button("刷新状态"):
-        st.rerun()
     try:
         data = client.get(f"/api/ai/problem-tasks/{task_id}")
     except ApiClientError as exc:
         st.warning(str(exc))
         return
-    st.write(f"状态：**{data.get('status')}** · {data.get('progress', '')}")
-    usage = data.get("usage")
-    if usage:
-        st.caption(f"Token：{usage.get('input_tokens', 0)} in / {usage.get('output_tokens', 0)} out · "
-                   f"费用 {usage.get('cost', 0)} {usage.get('currency', 'CNY')}（自动汇率 {usage.get('fx_rate', '')}）")
+    status = data.get("status")
+    phase = data.get("phase", "")
+    progress = data.get("progress", "")
+
+    st.subheader(f"任务 {task_id}")
+    head_l, head_r = st.columns([3, 1], vertical_alignment="center")
+    with head_l:
+        st.markdown(f"状态：**{status}** · 阶段：**{progress or phase or '—'}**")
+    with head_r:
+        if status in ("waiting", "running"):
+            if st.button("终止任务", key=f"cancel_ai_{task_id}", width="stretch"):
+                try:
+                    client.put(f"/api/ai/problem-tasks/{task_id}/cancel")
+                    st.rerun()
+                except ApiClientError as exc:
+                    _err(exc)
+    st.caption("每 2 秒自动刷新")
+
+    started = data.get("started_at") or data.get("created_at")
+    finished = data.get("finished_at")
+    start_ts = _iso_seconds(started)
+    end_ts = _iso_seconds(finished) if finished else None
+    elapsed = None
+    if start_ts is not None:
+        elapsed = (end_ts if end_ts else datetime.now().timestamp()) - start_ts
+
+    usage = data.get("usage") or {}
+    in_tok = usage.get("input_tokens", 0)
+    out_tok = usage.get("output_tokens", 0)
+    total_tok = usage.get("total_tokens", in_tok + out_tok)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("已用时间", _fmt_elapsed(elapsed) if elapsed is not None else "—")
+    c2.metric("Token 总数", total_tok)
+    c3.metric("输入 / 输出", f"{in_tok} / {out_tok}")
+    c4.metric("估算费用", f"¥{usage.get('cost', 0):.4f}")
+    if usage.get("fx_rate"):
+        st.caption(f"自动汇率 {usage['fx_rate']}（{usage.get('fx_source', '')}）· {usage.get('currency', 'CNY')}")
+    if data.get("hardcore"):
+        st.caption(f"硬核模式 · 对拍尝试 {data.get('attempts', 0)} 次（最多 {data.get('retry_limit', 0) + 1} 次）")
+
     if data.get("review"):
         st.warning(f"需人工复核：{data.get('review_note', '')}")
     if data.get("error"):

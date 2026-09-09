@@ -85,9 +85,9 @@ def _task_or_403(task_id: str, current: dict) -> dict:
 async def get_task(task_id: str, current: dict = Depends(get_current_user)):
     task = _task_or_403(task_id, current)
     data = {k: task.get(k) for k in (
-        "task_id", "status", "progress", "requirement", "language", "problem_id",
-        "hardcore", "attempts", "result", "review", "review_note", "usage", "error",
-        "created_at", "updated_at",
+        "task_id", "status", "phase", "progress", "requirement", "language", "problem_id",
+        "hardcore", "attempts", "retry_limit", "result", "review", "review_note", "usage", "error",
+        "created_at", "started_at", "finished_at", "updated_at",
     )}
     return success(msg="success", data=data)
 

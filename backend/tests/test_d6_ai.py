@@ -116,8 +116,11 @@ def test_task_flow_normal_mock(client, monkeypatch):
     task_id = r.json()["data"]["task_id"]
     data = _wait_task(client, task_id)
     assert data["status"] == "completed"
+    assert data["phase"] == "completed"
+    assert data.get("started_at") and data.get("finished_at")
     assert data["result"]["id"] == "AI-SUM"
     assert data["usage"]["input_tokens"] == 100 and data["usage"]["cost"] >= 0
+    assert data["usage"]["total_tokens"] == 130
     assert data["usage"]["currency"] == "CNY"
     # 语言结构化校验：未注册语言 400
     assert client.post("/api/ai/problem-tasks/", json={"requirement": "x", "language": "java"}).status_code == 400
