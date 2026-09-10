@@ -29,7 +29,7 @@ echo [1/4] Repo in WSL: %WROOT%
 rem ---- dependency pre-check ----
 wsl test -x "$HOME/oj-venv/bin/python" >nul 2>nul
 if errorlevel 1 (
-    echo [ERROR] ~/oj-venv not found in WSL. Run init.cmd first (one-click env setup).
+    echo [ERROR] ~/oj-venv not found in WSL. Run init.cmd first ^(one-click env setup^).
     pause
     exit /b 1
 )

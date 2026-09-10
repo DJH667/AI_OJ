@@ -35,7 +35,7 @@ set "ODD=%ODD:/=\%"
 echo %ODD% | findstr /b /i /c:"%REPO%" >nul
 if errorlevel 1 (
     echo [info] OJ_DATA_DIR points outside this repo and is SKIPPED: %ODD%
-    echo        (delete that folder manually if a full wipe is intended)
+    echo        ^(delete that folder manually if a full wipe is intended^)
     goto no_odj
 )
 set "T3=%ODD%"
