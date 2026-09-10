@@ -1,7 +1,7 @@
 @echo off
 rem ============================================================
 rem  OJ one-click start (Windows): backend(WSL :8000) + frontend(Streamlit :8501)
-rem  Prereq: WSL2 with ~/oj-venv, Windows .venv with streamlit
+rem  Prereq: run init.cmd once (creates ~/oj-venv in WSL + .venv on Windows)
 rem  Stop backend: stop.cmd   (backend log: backend.log, pid: backend.pid)
 rem ============================================================
 setlocal EnableExtensions
@@ -12,9 +12,13 @@ set "DRV=%~d0"
 set "WP=%~p0"
 set "WP=%WP:\=/%"
 if "%WP:~-1%"=="/" set "WP=%WP:~0,-1%"
-if /i "%DRV%"=="C:" (set WDRV=c) else if /i "%DRV%"=="D:" (set WDRV=d) else if /i "%DRV%"=="E:" (set WDRV=e) else if /i "%DRV%"=="F:" (set WDRV=f) else if /i "%DRV%"=="G:" (set WDRV=g) else (
-    echo [ERROR] Drive %DRV% not supported by auto WSL mapping.
-    echo         Please place the repo on a drive C:..G:, or start manually per reports/USER_GUIDE.md
+set "WDRV="
+for %%L in (a b c d e f g h i j k l m n o p q r s t u v w x y z) do (
+    if /i "%DRV%"=="%%L:" set "WDRV=%%L"
+)
+if not defined WDRV (
+    echo [ERROR] Drive %DRV% could not be mapped to a WSL mount ^(/mnt/^<letter^>^).
+    echo         Run init.cmd once to check the environment, or start manually per USER_GUIDE.
     pause
     exit /b 1
 )
@@ -25,7 +29,7 @@ echo [1/4] Repo in WSL: %WROOT%
 rem ---- dependency pre-check ----
 wsl test -x "$HOME/oj-venv/bin/python" >nul 2>nul
 if errorlevel 1 (
-    echo [ERROR] ~/oj-venv not found in WSL. See reports\USER_GUIDE.md
+    echo [ERROR] ~/oj-venv not found in WSL. Run init.cmd first (one-click env setup).
     pause
     exit /b 1
 )

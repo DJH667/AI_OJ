@@ -4,6 +4,8 @@
 
 ## 一键启动（Windows）
 
+**首次使用**：双击 **`init.cmd`** 一键配环境——自动创建/校验 WSL 的 `~/oj-venv`（后端 + 测试依赖）与 Windows `.venv`（Streamlit 依赖），并检查 WSL 里的 `python3`/`g++`；已存在则跳过，`init.cmd rebuild` 可强制重建。仓库可放在任意目录/盘符（自动映射为 WSL 的 `/mnt/<盘符>/...`）。
+
 双击 **`start.cmd`**：WSL 起后端（:8000）→ 前端 Streamlit（:8501）→ 自动打开浏览器。
 停止后端：`stop.cmd`（后端为后台进程，无独立窗口）。
 出厂级清除：`clear.cmd`（先停后端，再删 `backend/data`、`backend/data_test` 及 `OJ_DATA_DIR` 指向仓库内的全部运行期数据目录，代码/文档不受影响；清完用 `start.cmd` 恢复全新环境）。详细使用见 `reports/USER_GUIDE.md`。
@@ -37,6 +39,7 @@
 ├── polish/             # polish 计划与打磨说明
 ├── reports/            # 面向用户的文档（需求分析、进度计划、每日实现说明…）
 ├── technical_report/   # 实验报告源稿（EXP_REPORT.md + 截图）
+├── init.cmd / start.cmd / stop.cmd / clear.cmd   # 一键配环境/启动/停止/清零（Windows）
 └── requirements.txt    # Python 依赖（venv: .venv/，Python 3.14）
 ```
 
@@ -48,7 +51,8 @@
 
 ```bash
 # 后端依赖（Windows：.venv；WSL Linux：~/oj-venv —— 评测需 Linux，推荐 WSL）
-#  WSL 首次：wsl python3 -m venv ~/oj-venv && wsl ~/oj-venv/bin/pip install fastapi "uvicorn[standard]" pydantic httpx pytest psutil bcrypt python-multipart
+#  一键完成两套 venv：双击 init.cmd（或 `cmd /c init.cmd rebuild` 强制重建）
+#  手动等价命令（WSL 首次）：wsl python3 -m venv ~/oj-venv && wsl ~/oj-venv/bin/pip install fastapi "uvicorn[standard]" pydantic httpx pytest psutil bcrypt python-multipart
 wsl ~/oj-venv/bin/python -m pytest tests -q              # 全量测试（Linux，含评测执行）
 .venv/Scripts/python.exe -m pytest backend/tests -q      # Windows 侧后端测试
 

@@ -22,15 +22,17 @@ backend/   FastAPI（端口 8000，进程 B，全 JSON 存储于 backend/data/�
 
 ## 2. 启动步骤
 
+> **首次使用推荐**：双击仓库根目录的 **`init.cmd`** 一键配环境——自动创建 WSL 的 `~/oj-venv`（后端 + 测试依赖）与 Windows 的 `.venv`（前端 Streamlit 依赖），并检查 WSL 中 `python3`/`g++`；已存在则跳过，`init.cmd rebuild` 可强制重建。仓库放在任意目录/盘符均可（自动映射为 WSL 的 `/mnt/<盘符>/...`）。以下 2.1/2.2 为手动步骤，供自定义环境使用。
+
 ### 2.1 后端（WSL Ubuntu，端口 8000）
 
 ```bash
-# 首次环境（仅一次）：
+# 首次环境（仅一次；也可直接双击仓库根的 init.cmd 自动完成）：
 wsl python3 -m venv ~/oj-venv
 wsl ~/oj-venv/bin/pip install fastapi "uvicorn[standard]" pydantic httpx pytest psutil bcrypt python-multipart
 
-# 启动：
-wsl -e bash -lc 'cd /mnt/e/程序/python/大作业-2/backend && ~/oj-venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000'
+# 启动（把 <仓库路径> 换成你的实际位置，形如 /mnt/<盘符>/<目录>）：
+wsl -e bash -lc 'cd "<仓库路径>/backend" && ~/oj-venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000'
 ```
 
 启动钩子自动：建数据目录、创建初始管理员 `admin / admintestpassword`、内置语言 python/cpp。
@@ -38,7 +40,7 @@ wsl -e bash -lc 'cd /mnt/e/程序/python/大作业-2/backend && ~/oj-venv/bin/py
 ### 2.2 前端（端口 8501）
 
 ```bash
-cd /mnt/e/程序/python/大作业-2/frontend
+cd "<仓库路径>/frontend"
 ../.venv/Scripts/python.exe -m streamlit run app.py --server.port 8501
 ```
 
